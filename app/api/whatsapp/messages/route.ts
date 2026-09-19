@@ -177,6 +177,27 @@ export async function POST(req: NextRequest) {
       data: { updatedAt: new Date() },
     });
 
+    // Keep Conversation record in sync
+    const orgId = contact.organizationId || config.organizationId;
+    const existingConv = await prisma.conversation.findFirst({
+      where: { contactId: contact.id, organizationId: orgId },
+    });
+    if (existingConv) {
+      await prisma.conversation.update({
+        where: { id: existingConv.id },
+        data: { lastMessageAt: new Date() },
+      });
+    } else {
+      await prisma.conversation.create({
+        data: {
+          contactId: contact.id,
+          organizationId: orgId,
+          lastMessageAt: new Date(),
+          status: "open",
+        },
+      });
+    }
+
     const d = new Date(savedMsg.timestamp);
 
     return NextResponse.json({

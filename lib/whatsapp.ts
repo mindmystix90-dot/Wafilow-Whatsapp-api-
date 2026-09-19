@@ -87,7 +87,7 @@ export async function getWhatsAppConfig(organizationId?: string): Promise<WhatsA
     process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ||
     "wafilow_webhook_token_secure_9921";
 
-  const appId = process.env.META_APP_ID || process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "";
+  const appId = process.env.META_APP_ID || process.env.FACEBOOK_APP_ID || "";
   const appSecret = process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET || "";
 
   const isConfigured = Boolean(accessToken && phoneNumberId);

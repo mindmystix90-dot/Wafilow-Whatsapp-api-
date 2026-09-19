@@ -5,12 +5,22 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    // Fetch all contacts with their latest messages
+    // Fetch all contacts with their latest messages and unread counts
     const contacts = await prisma.contact.findMany({
       include: {
         messages: {
           orderBy: { timestamp: "desc" },
           take: 1,
+        },
+        _count: {
+          select: {
+            messages: {
+              where: {
+                direction: "inbound",
+                status: { not: "read" },
+              },
+            },
+          },
         },
       },
       orderBy: { updatedAt: "desc" },
@@ -42,7 +52,7 @@ export async function GET() {
         lastMessageStatus: latestMsg?.status || "delivered",
         lastMessageDirection: latestMsg?.direction || "inbound",
         time: formattedTime,
-        unread: 0,
+        unread: c._count?.messages || 0,
         tags: tagsArray,
         updatedAt: c.updatedAt,
       };

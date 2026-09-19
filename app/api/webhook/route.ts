@@ -121,6 +121,12 @@ export async function POST(req: NextRequest) {
               });
 
               if (existingMsg) {
+                // Tenant check: ensure message belongs to the verified organization
+                if (existingMsg.organizationId && existingMsg.organizationId !== org.id) {
+                  console.warn(`[Meta Webhook] Tenant isolation violation: status update for message ${wamId} does not belong to Org ${org.id}`);
+                  continue;
+                }
+
                 await prisma.message.update({
                   where: { id: existingMsg.id },
                   data: {
@@ -221,6 +227,27 @@ export async function POST(req: NextRequest) {
                   timestamp: msgTimestamp,
                 },
               });
+
+              // Keep Conversation record in sync
+              const existingConv = await prisma.conversation.findFirst({
+                where: { contactId: contact.id, organizationId: org.id },
+              });
+              if (existingConv) {
+                await prisma.conversation.update({
+                  where: { id: existingConv.id },
+                  data: { lastMessageAt: msgTimestamp, status: "open" },
+                });
+              } else {
+                await prisma.conversation.create({
+                  data: {
+                    contactId: contact.id,
+                    organizationId: org.id,
+                    lastMessageAt: msgTimestamp,
+                    status: "open",
+                  },
+                });
+              }
+
               console.log(
                 `[Meta Webhook] Stored inbound message ${wamId} from ${contactName} (${senderPhone}) for Org ${org.name}`
               );
