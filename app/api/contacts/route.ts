@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { normalizePhoneNumber } from "@/lib/whatsapp";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    const session = await getServerSession(authOptions);
+    const orgId = session?.user?.organizationId;
+
     const contacts = await prisma.contact.findMany({
+      where: orgId ? { organizationId: orgId } : undefined,
       orderBy: { updatedAt: "desc" },
     });
 
@@ -33,6 +39,9 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    const orgId = session?.user?.organizationId;
+
     const body = await req.json().catch(() => ({}));
     const { name, phone, tags } = body;
 
@@ -50,6 +59,7 @@ export async function POST(req: NextRequest) {
       update: {
         name: name?.trim() || undefined,
         tags: tags ? String(tags).trim() : undefined,
+        organizationId: orgId || undefined,
         status: "active",
         updatedAt: new Date(),
       },
@@ -59,6 +69,7 @@ export async function POST(req: NextRequest) {
         waId: norm.digits,
         tags: tags ? String(tags).trim() : "Direct Contact",
         status: "active",
+        organizationId: orgId || null,
       },
     });
 

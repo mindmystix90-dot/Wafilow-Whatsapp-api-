@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    // Fetch all contacts with their latest messages and unread counts
+    const session = await getServerSession(authOptions);
+    const orgId = session?.user?.organizationId;
+
+    // Fetch all contacts with their latest messages and unread counts for this organization
     const contacts = await prisma.contact.findMany({
+      where: orgId ? { organizationId: orgId } : undefined,
       include: {
         messages: {
           orderBy: { timestamp: "desc" },

@@ -1,15 +1,22 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getWhatsAppConfig } from "@/lib/whatsapp";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const config = await getWhatsAppConfig();
+    const session = await getServerSession(authOptions);
+    const orgId = session?.user?.organizationId;
+    const config = await getWhatsAppConfig(orgId || undefined);
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
+
+    const msgOrgFilter = orgId ? { organizationId: orgId } : {};
+    const contactOrgFilter = orgId ? { organizationId: orgId } : {};
 
     // 1. Precise metrics from Prisma database
     const [
@@ -24,26 +31,29 @@ export async function GET() {
       messagesDeliveredToday,
       openConversations,
     ] = await Promise.all([
-      prisma.message.count().catch(() => 0),
-      prisma.message.count({ where: { direction: "outbound" } }).catch(() => 0),
-      prisma.message.count({ where: { direction: "inbound" } }).catch(() => 0),
+      prisma.message.count({ where: msgOrgFilter }).catch(() => 0),
+      prisma.message.count({ where: { ...msgOrgFilter, direction: "outbound" } }).catch(() => 0),
+      prisma.message.count({ where: { ...msgOrgFilter, direction: "inbound" } }).catch(() => 0),
       prisma.message.count({
         where: {
+          ...msgOrgFilter,
           direction: "outbound",
           status: { in: ["delivered", "read"] },
         },
       }).catch(() => 0),
-      prisma.message.count({ where: { status: "read" } }).catch(() => 0),
-      prisma.contact.count().catch(() => 0),
-      prisma.contact.count({ where: { status: "active" } }).catch(() => 0),
+      prisma.message.count({ where: { ...msgOrgFilter, status: "read" } }).catch(() => 0),
+      prisma.contact.count({ where: contactOrgFilter }).catch(() => 0),
+      prisma.contact.count({ where: { ...contactOrgFilter, status: "active" } }).catch(() => 0),
       prisma.message.count({
         where: {
+          ...msgOrgFilter,
           direction: "outbound",
           timestamp: { gte: todayStart },
         },
       }).catch(() => 0),
       prisma.message.count({
         where: {
+          ...msgOrgFilter,
           direction: "outbound",
           status: { in: ["delivered", "read"] },
           timestamp: { gte: todayStart },
@@ -51,6 +61,7 @@ export async function GET() {
       }).catch(() => 0),
       prisma.contact.count({
         where: {
+          ...contactOrgFilter,
           messages: {
             some: {},
           },
@@ -71,6 +82,7 @@ export async function GET() {
 
     // 2. Recent Active Customer Inquiries / Conversations from real DB
     const recentContacts = await prisma.contact.findMany({
+      where: contactOrgFilter,
       include: {
         messages: {
           orderBy: { timestamp: "desc" },

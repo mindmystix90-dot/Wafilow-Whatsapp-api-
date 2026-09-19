@@ -3,6 +3,7 @@
 import { ReactNode, useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
 import {
   MessageSquare,
   Users,
@@ -12,6 +13,7 @@ import {
   BarChart3,
   Bot,
   UserCheck,
+  LogOut,
 } from "lucide-react";
 
 interface AppLayoutProps {
@@ -35,6 +37,7 @@ const navItems = [
 
 export default function AppLayout({ children, title, subtitle, action }: AppLayoutProps) {
   const pathname = usePathname();
+  const { data: session } = useSession();
   const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -87,6 +90,28 @@ export default function AppLayout({ children, title, subtitle, action }: AppLayo
               ></span>
               {isConfigured ? "Meta Cloud API Connected" : "Meta API Setup Required"}
             </Link>
+
+            {session?.user && (
+              <div className="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-800">
+                <div className="hidden md:flex flex-col text-right">
+                  <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 leading-tight">
+                    {session.user.name || session.user.email?.split("@")[0]}
+                  </span>
+                  <span className="text-[10px] text-slate-500 truncate max-w-[130px]">
+                    {session.user.email}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => signOut({ callbackUrl: "/login" })}
+                  title="Sign out of Wafilow"
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors flex items-center gap-1 text-xs cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span className="hidden sm:inline text-[11px] font-medium">Sign Out</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

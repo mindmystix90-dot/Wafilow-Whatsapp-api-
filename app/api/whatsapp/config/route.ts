@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWhatsAppConfig } from "@/lib/whatsapp";
 import { prisma } from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +12,9 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: NextRequest) {
   try {
-    const config = await getWhatsAppConfig();
+    const session = await getServerSession(authOptions);
+    const orgId = session?.user?.organizationId;
+    const config = await getWhatsAppConfig(orgId || undefined);
 
     const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3000";
     const proto = req.headers.get("x-forwarded-proto") || "https";
@@ -42,11 +46,16 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    const userOrgId = session?.user?.organizationId;
+
     const body = await req.json().catch(() => ({}));
     const { phoneNumberId, wabaId, accessToken, verifyToken } = body;
 
-    // Find or create primary Organization
-    const existingOrg = await prisma.organization.findFirst();
+    // Find target Organization (user's organization or first existing)
+    const existingOrg = userOrgId
+      ? await prisma.organization.findUnique({ where: { id: userOrgId } })
+      : await prisma.organization.findFirst();
 
     if (existingOrg) {
       await prisma.organization.update({
@@ -70,7 +79,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const updatedConfig = await getWhatsAppConfig();
+    const updatedConfig = await getWhatsAppConfig(existingOrg?.id);
 
     return NextResponse.json({
       success: true,

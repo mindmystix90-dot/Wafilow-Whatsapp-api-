@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage, getWhatsAppConfig, normalizePhoneNumber } from "@/lib/whatsapp";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +12,9 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    const orgId = session?.user?.organizationId;
+
     const { searchParams } = new URL(req.url);
     const contactId = searchParams.get("contactId");
 
@@ -18,6 +23,16 @@ export async function GET(req: NextRequest) {
         { success: false, error: "contactId query parameter is required", messages: [] },
         { status: 400 }
       );
+    }
+
+    if (orgId) {
+      const contact = await prisma.contact.findUnique({ where: { id: contactId } });
+      if (contact && contact.organizationId && contact.organizationId !== orgId) {
+        return NextResponse.json(
+          { success: false, error: "Access denied to contact in another workspace", messages: [] },
+          { status: 403 }
+        );
+      }
     }
 
     const messages = await prisma.message.findMany({
@@ -61,6 +76,9 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    const sessionOrgId = session?.user?.organizationId;
+
     const body = await req.json().catch(() => ({}));
     const { contactId, text, to } = body;
 
@@ -87,12 +105,15 @@ export async function POST(req: NextRequest) {
       }
       contact = await prisma.contact.upsert({
         where: { phoneNumber: norm.digits },
-        update: {},
+        update: {
+          organizationId: sessionOrgId || undefined,
+        },
         create: {
           name: norm.formatted,
           phoneNumber: norm.digits,
           waId: norm.digits,
           status: "active",
+          organizationId: sessionOrgId || null,
         },
       });
     }
@@ -101,6 +122,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Contact not found. Please provide a valid contactId or recipient phone number." },
         { status: 404 }
+      );
+    }
+
+    if (sessionOrgId && contact.organizationId && contact.organizationId !== sessionOrgId) {
+      return NextResponse.json(
+        { success: false, error: "Access denied to contact in another workspace" },
+        { status: 403 }
       );
     }
 

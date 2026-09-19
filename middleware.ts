@@ -2,12 +2,12 @@ import { withAuth } from "next-auth/middleware";
 
 export default withAuth({
   callbacks: {
-    authorized: () => {
-      // In preview/dev allow seamless navigation, or token if present
-      return true;
-    },
+    authorized: ({ token }) => !!token,
   },
-  secret: process.env.NEXTAUTH_SECRET || "wafilow-default-secret-key-32charsmin",
+  pages: {
+    signIn: "/login",
+  },
+  secret: process.env.NEXTAUTH_SECRET,
 });
 
 export const config = {
@@ -21,5 +21,5 @@ export const config = {
     "/analytics/:path*",
     "/settings/:path*",
     "/team/:path*",
-  ]
+  ],
 };

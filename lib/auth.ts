@@ -15,53 +15,32 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.email) {
+        if (!credentials?.email || !credentials?.password) {
           return null;
         }
 
         const normalizedEmail = credentials.email.toLowerCase().trim();
 
         // 1. Look up user in Neon PostgreSQL
-        let user = await prisma.user.findUnique({
+        const user = await prisma.user.findUnique({
           where: { email: normalizedEmail },
         });
 
-        // 2. Provision initial user if first login
-        if (!user) {
-          let org = await prisma.organization.findFirst();
-          if (!org) {
-            org = await prisma.organization.create({
-              data: {
-                name: "Default Organization",
-              },
-            });
-          }
+        if (!user || !user.password) {
+          return null;
+        }
 
-          const hashedPassword = credentials.password
-            ? await bcrypt.hash(credentials.password, 10)
-            : null;
-
-          user = await prisma.user.create({
-            data: {
-              email: normalizedEmail,
-              name: normalizedEmail.split("@")[0] || "Admin",
-              password: hashedPassword,
-              role: "admin",
-              organizationId: org.id,
-            },
-          });
-        } else if (credentials.password && user.password) {
-          const isValid = await bcrypt.compare(credentials.password, user.password);
-          if (!isValid) {
-            return null;
-          }
+        const isValid = await bcrypt.compare(credentials.password, user.password);
+        if (!isValid) {
+          return null;
         }
 
         return {
           id: user.id,
-          name: user.name || "Admin",
+          name: user.name || normalizedEmail.split("@")[0],
           email: user.email,
           role: user.role,
+          organizationId: user.organizationId,
         };
       },
     }),
@@ -78,13 +57,15 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
         token.role = (user as { role?: string }).role;
+        token.organizationId = (user as { organizationId?: string | null }).organizationId;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as { id?: string }).id = token.id as string;
-        (session.user as { role?: string }).role = token.role as string;
+        session.user.id = token.id as string;
+        session.user.role = token.role as string;
+        session.user.organizationId = (token.organizationId as string | null) || null;
       }
       return session;
     },
