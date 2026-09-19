@@ -1,213 +1,105 @@
 "use client";
 
-import { useState } from "react";
 import AppLayout from "@/components/AppLayout";
-import { Plus } from "lucide-react";
+import Link from "next/link";
+import {
+  Megaphone,
+  MessageSquare,
+  Send,
+  Clock,
+  ArrowRight,
+  CheckCircle2,
+} from "lucide-react";
 
 export default function CampaignsPage() {
-  const [campaigns, setCampaigns] = useState([
-    {
-      id: "cmp_1",
-      name: "March Spring Discount Blast",
-      template: "spring_sale_promo_v1",
-      audience: "All Active Customers (2,450)",
-      sent: 2450,
-      delivered: 2428,
-      read: 2210,
-      status: "Completed",
-      date: "Mar 18, 2026",
-    },
-    {
-      id: "cmp_2",
-      name: "Weekly Cart Recovery Reminder",
-      template: "cart_recovery_discount",
-      audience: "Abandoned Cart Users (312)",
-      sent: 312,
-      delivered: 309,
-      read: 285,
-      status: "Completed",
-      date: "Mar 17, 2026",
-    },
-    {
-      id: "cmp_3",
-      name: "New Arrivals - Summer Sneaker Drops",
-      template: "new_arrival_alert",
-      audience: "Sneaker Heads Tag (890)",
-      sent: 0,
-      delivered: 0,
-      read: 0,
-      status: "Scheduled",
-      date: "Tomorrow, 09:00 AM",
-    },
-  ]);
-
-  const [showModal, setShowModal] = useState(false);
-  const [newCampaignName, setNewCampaignName] = useState("");
-
-  const handleCreateCampaign = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCampaignName.trim()) return;
-
-    setCampaigns([
-      {
-        id: `cmp_${Date.now()}`,
-        name: newCampaignName,
-        template: "order_update_notification",
-        audience: "VIP Customers (450)",
-        sent: 450,
-        delivered: 445,
-        read: 390,
-        status: "Processing",
-        date: "Just now",
-      },
-      ...campaigns,
-    ]);
-    setNewCampaignName("");
-    setShowModal(false);
-  };
-
   return (
     <AppLayout
       title="Broadcast Campaigns"
-      subtitle="Dispatch and schedule marketing campaigns and transactional broadcast notifications"
-      action={
-        <button
-          onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-medium transition-colors shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Create Broadcast
-        </button>
-      }
+      subtitle="Mass notification engine and targeted WhatsApp customer broadcasts"
     >
-      <div className="space-y-6">
-        {/* Campaign List */}
-        <div className="border border-slate-200 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs sm:text-sm">
-              <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold uppercase tracking-wider text-[11px]">
-                <tr>
-                  <th className="py-3 px-4">Campaign Name</th>
-                  <th className="py-3 px-4">HSM Template</th>
-                  <th className="py-3 px-4">Audience</th>
-                  <th className="py-3 px-4">Delivery Rate</th>
-                  <th className="py-3 px-4">Read Rate</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {campaigns.map((c) => {
-                  const deliveryPct = c.sent > 0 ? Math.round((c.delivered / c.sent) * 100) : 0;
-                  const readPct = c.sent > 0 ? Math.round((c.read / c.sent) * 100) : 0;
-                  return (
-                    <tr key={c.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
-                      <td className="py-3 px-4 font-semibold text-slate-900 dark:text-white">
-                        {c.name}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-xs text-slate-500">
-                        {c.template}
-                      </td>
-                      <td className="py-3 px-4 text-slate-600 dark:text-slate-300">
-                        {c.audience}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-semibold text-slate-900 dark:text-white">{c.delivered}</span>{" "}
-                        <span className="text-xs text-emerald-600 font-medium">({deliveryPct}%)</span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-semibold text-slate-900 dark:text-white">{c.read}</span>{" "}
-                        <span className="text-xs text-blue-600 font-medium">({readPct}%)</span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
-                            c.status === "Completed"
-                              ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300"
-                              : c.status === "Scheduled"
-                              ? "bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300"
-                              : "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300"
-                          }`}
-                        >
-                          {c.status}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
-                        {c.date}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      <div className="max-w-4xl mx-auto py-8">
+        {/* Coming Soon Notice Card */}
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 sm:p-10 shadow-sm text-center">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto mb-6 border border-amber-200/60 dark:border-amber-800/40">
+            <Megaphone className="w-8 h-8" />
+          </div>
+
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 mb-4">
+            <Clock className="w-3.5 h-3.5" />
+            Coming Soon • Post Meta App Review
+          </div>
+
+          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
+            Broadcast Engine in Development
+          </h2>
+
+          <p className="mt-3 text-sm sm:text-base text-slate-600 dark:text-slate-400 max-w-xl mx-auto leading-relaxed">
+            WhatsApp Business Cloud API enforces strict tier limits for unsolicited outbound broadcasts. During this MVP evaluation phase, broadcast scheduling is queued while the app undergoes Meta App Review for Tier 2 messaging volume (10,000 conversations/24h).
+          </p>
+
+          {/* Active Features Available Today */}
+          <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-800">
+            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">
+              Fully Functional in this MVP
+            </h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left max-w-lg mx-auto">
+              <Link
+                href="/inbox"
+                className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 bg-slate-50 dark:bg-slate-800/50 transition-all group"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center">
+                    <MessageSquare className="w-4 h-4" />
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-500 transition-colors" />
+                </div>
+                <div className="font-semibold text-sm text-slate-900 dark:text-white">Live 1-to-1 Inbox</div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Exchange real bi-directional WhatsApp messages with live webhook polling.
+                </p>
+              </Link>
+
+              <Link
+                href="/settings"
+                className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 bg-slate-50 dark:bg-slate-800/50 transition-all group"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-600 flex items-center justify-center">
+                    <Send className="w-4 h-4" />
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-blue-500 transition-colors" />
+                </div>
+                <div className="font-semibold text-sm text-slate-900 dark:text-white">Send Test Ping</div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Dispatch real verified WhatsApp Cloud API template pings to any phone number.
+                </p>
+              </Link>
+            </div>
+          </div>
+
+          {/* Planned Broadcast Capabilities */}
+          <div className="mt-8 p-5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 text-left max-w-lg mx-auto">
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
+              Broadcast Roadmap Features:
+            </span>
+            <ul className="space-y-1.5 text-xs text-slate-500">
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                HSM Template selection with dynamic parameter binding
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                Audience tag filtering and opt-in status validation
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                Real-time delivery & read receipts aggregation
+              </li>
+            </ul>
           </div>
         </div>
       </div>
-
-      {/* Modal for Creating Campaign */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-xl">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">New Broadcast Campaign</h3>
-            <p className="text-xs text-slate-500 mb-4">Send a WhatsApp Business message to your contact segment</p>
-
-            <form onSubmit={handleCreateCampaign} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Campaign Title
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newCampaignName}
-                  onChange={(e) => setNewCampaignName(e.target.value)}
-                  placeholder="e.g. VIP Member Discount Announcement"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Select Meta HSM Template
-                </label>
-                <select className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white">
-                  <option>spring_sale_promo_v1 (Marketing)</option>
-                  <option>cart_recovery_discount (Marketing)</option>
-                  <option>order_update_notification (Utility)</option>
-                  <option>otp_verification_code (Authentication)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Target Audience
-                </label>
-                <select className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white">
-                  <option>All Active Opt-in Contacts (5,820)</option>
-                  <option>VIP Customers (450)</option>
-                  <option>Abandoned Cart Leads (312)</option>
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 text-xs font-medium rounded-lg text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
-                >
-                  Launch Broadcast
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </AppLayout>
   );
 }

@@ -1,121 +1,90 @@
 "use client";
 
-import { useState } from "react";
 import AppLayout from "@/components/AppLayout";
-import { Bot, Plus, ArrowRight } from "lucide-react";
+import Link from "next/link";
+import { Bot, Clock, MessageSquare, CheckCircle2, ArrowRight, Zap } from "lucide-react";
 
 export default function AutomationsPage() {
-  const [automations, setAutomations] = useState([
-    {
-      id: "auto_1",
-      title: "Welcome Greeting Flow",
-      trigger: "Customer sends their first incoming message",
-      action: "Reply with interactive greeting menu & catalog link",
-      enabled: true,
-      executions: 1240,
-    },
-    {
-      id: "auto_2",
-      title: "Out of Office Autoresponder",
-      trigger: "Message received outside working hours (18:00 - 09:00 UTC)",
-      action: "Send automated availability notice and SLA expectation",
-      enabled: true,
-      executions: 489,
-    },
-    {
-      id: "auto_3",
-      title: "Order Tracking Keyword Bot",
-      trigger: "Incoming message contains 'TRACK' or 'ORDER'",
-      action: "Query order status API and respond with live tracking link",
-      enabled: true,
-      executions: 915,
-    },
-    {
-      id: "auto_4",
-      title: "Shopify Abandoned Checkout Recovery",
-      trigger: "Cart abandoned > 30 minutes",
-      action: "Dispatch WhatsApp template with dynamic discount voucher",
-      enabled: false,
-      executions: 312,
-    },
-  ]);
-
-  const toggleSwitch = (id: string) => {
-    setAutomations((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, enabled: !a.enabled } : a))
-    );
-  };
-
   return (
     <AppLayout
       title="Automations & Chatbot Flows"
-      subtitle="Automate conversational journeys, keyword responses, and e-commerce webhooks"
-      action={
-        <button className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-medium transition-colors shadow-sm">
-          <Plus className="w-4 h-4" />
-          Create Automation Flow
-        </button>
-      }
+      subtitle="Automate conversational journeys, keyword auto-replies, and e-commerce webhooks"
     >
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {automations.map((a) => (
-          <div
-            key={a.id}
-            className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-start justify-between gap-4 mb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center">
-                    <Bot className="w-5 h-5" />
+      <div className="max-w-4xl mx-auto py-8">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 sm:p-10 shadow-sm text-center">
+          <div className="w-16 h-16 rounded-2xl bg-violet-50 dark:bg-violet-950/60 text-violet-600 dark:text-violet-400 flex items-center justify-center mx-auto mb-6 border border-violet-200/60 dark:border-violet-800/40">
+            <Bot className="w-8 h-8" />
+          </div>
+
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-violet-100 dark:bg-violet-950 text-violet-800 dark:text-violet-300 mb-4">
+            <Clock className="w-3.5 h-3.5" />
+            Coming Soon • Post Meta App Review
+          </div>
+
+          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
+            Conversational Flow Builder
+          </h2>
+
+          <p className="mt-3 text-sm sm:text-base text-slate-600 dark:text-slate-400 max-w-xl mx-auto leading-relaxed">
+            Rule-based keyword auto-responders, welcome greetings, and webhook-triggered flows are currently in development. In this MVP release, all WhatsApp customer interactions are handled cleanly via the Live Inbox.
+          </p>
+
+          <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-800">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left max-w-lg mx-auto">
+              <Link
+                href="/inbox"
+                className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 bg-slate-50 dark:bg-slate-800/50 transition-all group"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center">
+                    <MessageSquare className="w-4 h-4" />
                   </div>
-                  <div>
-                    <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white">
-                      {a.title}
-                    </h3>
-                    <span className="text-[11px] text-slate-400">
-                      {a.executions.toLocaleString()} executions triggered
-                    </span>
+                  <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-500 transition-colors" />
+                </div>
+                <div className="font-semibold text-sm text-slate-900 dark:text-white">Live Inbox</div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Reply manually to incoming customer messages in real time.
+                </p>
+              </Link>
+
+              <Link
+                href="/contacts"
+                className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-blue-500/50 bg-slate-50 dark:bg-slate-800/50 transition-all group"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-600 flex items-center justify-center">
+                    <Zap className="w-4 h-4" />
                   </div>
+                  <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-blue-500 transition-colors" />
                 </div>
-
-                {/* Toggle Button */}
-                <button
-                  onClick={() => toggleSwitch(a.id)}
-                  className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
-                    a.enabled ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-700"
-                  }`}
-                >
-                  <span
-                    className={`w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform shadow-sm ${
-                      a.enabled ? "right-0.5" : "left-0.5"
-                    }`}
-                  />
-                </button>
-              </div>
-
-              <div className="space-y-2 mt-4 text-xs">
-                <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                  <span className="font-semibold text-slate-500 block text-[10px] uppercase">WHEN</span>
-                  <span className="text-slate-800 dark:text-slate-200 mt-0.5 block">{a.trigger}</span>
-                </div>
-                <div className="p-3 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
-                  <span className="font-semibold text-emerald-700 dark:text-emerald-400 block text-[10px] uppercase">THEN</span>
-                  <span className="text-emerald-900 dark:text-emerald-200 mt-0.5 block">{a.action}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-              <span className={`font-semibold ${a.enabled ? "text-emerald-600" : "text-slate-400"}`}>
-                {a.enabled ? "Active" : "Paused"}
-              </span>
-              <button className="text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1">
-                Edit Flow <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+                <div className="font-semibold text-sm text-slate-900 dark:text-white">Contacts Directory</div>
+                <p className="text-xs text-slate-500 mt-1">
+                  View and manage customer phone numbers and tags.
+                </p>
+              </Link>
             </div>
           </div>
-        ))}
+
+          <div className="mt-8 p-5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 text-left max-w-lg mx-auto">
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
+              Upcoming Automation Triggers:
+            </span>
+            <ul className="space-y-1.5 text-xs text-slate-500">
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                First-time greeting autoresponder
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                Out-of-office response outside business hours
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                Keyword-based routing and auto-tagging
+              </li>
+            </ul>
+          </div>
+        </div>
       </div>
     </AppLayout>
   );

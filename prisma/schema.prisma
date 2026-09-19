@@ -57,13 +57,32 @@ model VerificationToken {
 }
 
 model Contact {
-  id          String    @id @default(cuid())
-  name        String
-  phoneNumber String    @unique
-  tags        String?
-  status      String    @default("active")
-  createdAt   DateTime  @default(now())
-  messages    Message[]
+  id             String    @id @default(cuid())
+  organizationId String?
+  name           String
+  phoneNumber    String    @unique
+  waId           String?
+  tags           String?
+  status         String    @default("active")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now()) @updatedAt
+  messages       Message[]
+
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+}
+
+model Organization {
+  id                 String    @id @default(cuid())
+  name               String    @default("Default Organization")
+  wabaId             String?   @unique
+  phoneNumberId      String?   @unique
+  displayPhoneNumber String?
+  accessToken        String?
+  webhookVerifyToken String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  contacts           Contact[]
+  messages           Message[]
 }
 
 model Template {
@@ -88,12 +107,17 @@ model Campaign {
 }
 
 model Message {
-  id          String   @id @default(cuid())
-  contactId   String
-  direction   String   // "inbound" | "outbound"
-  content     String
-  status      String   @default("sent") // "sent" | "delivered" | "read" | "failed"
-  timestamp   DateTime @default(now())
+  id             String        @id @default(cuid())
+  contactId      String
+  organizationId String?
+  wamId          String?       @unique
+  direction      String        // "inbound" | "outbound"
+  content        String
+  type           String        @default("text")
+  status         String        @default("sent") // "sent" | "delivered" | "read" | "failed"
+  errorMessage   String?
+  timestamp      DateTime      @default(now())
 
-  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contact        Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 }
