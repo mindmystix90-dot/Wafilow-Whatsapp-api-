@@ -1,0 +1,6 @@
+{
+  "name": "Wafilow WhatsApp API",
+  "description": "WhatsApp Business API management platform for omnichannel inbox, automated campaigns, contact lists, and template management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
