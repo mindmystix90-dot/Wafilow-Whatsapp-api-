@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { ArrowRight, Lock, Mail, User, Building2, AlertCircle, Loader2 } from "lucide-react";
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const initialMode = searchParams.get("mode") === "signup" ? "signup" : "login";
   const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
@@ -26,19 +25,45 @@ function LoginForm() {
 
     try {
       if (mode === "signup") {
-        // 1. Call real signup endpoint
-        const res = await fetch("/api/auth/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name,
-            email,
-            password,
-            organizationName,
-          }),
-        });
+        // 1. Call real signup endpoint with timeout protection
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-        const data = await res.json();
+        let res: Response;
+        try {
+          res = await fetch("/api/auth/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: name.trim(),
+              email: email.trim().toLowerCase(),
+              password,
+              organizationName: organizationName.trim(),
+            }),
+            signal: controller.signal,
+          });
+        } catch (fetchErr: unknown) {
+          clearTimeout(timeoutId);
+          const isAbort = fetchErr instanceof Error && fetchErr.name === "AbortError";
+          setError(
+            isAbort
+              ? "Registration request timed out. Please try again."
+              : "Network error connecting to server. Please check your connection."
+          );
+          setIsSubmitting(false);
+          return;
+        } finally {
+          clearTimeout(timeoutId);
+        }
+
+        let data: { success?: boolean; error?: string } = {};
+        try {
+          data = await res.json();
+        } catch {
+          setError("Server returned an invalid response. Please try again.");
+          setIsSubmitting(false);
+          return;
+        }
 
         if (!res.ok || !data.success) {
           setError(data.error || "Failed to create account. Please try again.");
@@ -47,37 +72,53 @@ function LoginForm() {
         }
 
         // 2. Automatically authenticate upon successful registration
-        const loginRes = await signIn("credentials", {
-          email,
-          password,
-          redirect: false,
-        });
-
-        if (loginRes?.error) {
+        let loginRes;
+        try {
+          loginRes = await signIn("credentials", {
+            email: email.trim().toLowerCase(),
+            password,
+            redirect: false,
+            callbackUrl,
+          });
+        } catch {
           setMode("login");
-          setError("Account created. Please log in with your credentials.");
+          setError("Account created! Please sign in with your credentials.");
           setIsSubmitting(false);
           return;
         }
 
-        router.push(callbackUrl);
-        router.refresh();
+        if (!loginRes || loginRes.error || !loginRes.ok) {
+          setMode("login");
+          setError("Account created! Please sign in with your credentials.");
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Hard navigation to callbackUrl ensures fresh session cookies are loaded and avoids client router stalling
+        window.location.href = callbackUrl;
       } else {
         // Real credential login via NextAuth
-        const res = await signIn("credentials", {
-          email,
-          password,
-          redirect: false,
-        });
+        let res;
+        try {
+          res = await signIn("credentials", {
+            email: email.trim().toLowerCase(),
+            password,
+            redirect: false,
+            callbackUrl,
+          });
+        } catch {
+          setError("Failed to sign in. Please try again.");
+          setIsSubmitting(false);
+          return;
+        }
 
-        if (res?.error) {
+        if (!res || res.error || !res.ok) {
           setError("Invalid email or password. Please verify your credentials.");
           setIsSubmitting(false);
           return;
         }
 
-        router.push(callbackUrl);
-        router.refresh();
+        window.location.href = callbackUrl;
       }
     } catch {
       setError("An unexpected error occurred. Please try again.");
