@@ -8,7 +8,10 @@ export async function GET() {
   try {
     const config = await getWhatsAppConfig();
 
-    // 1. Message counts from Prisma
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    // 1. Precise metrics from Prisma database
     const [
       totalMessages,
       totalOutbound,
@@ -17,27 +20,48 @@ export async function GET() {
       readMessages,
       totalContacts,
       activeContacts,
+      messagesSentToday,
+      messagesDeliveredToday,
+      openConversations,
     ] = await Promise.all([
-      prisma.message.count(),
-      prisma.message.count({ where: { direction: "outbound" } }),
-      prisma.message.count({ where: { direction: "inbound" } }),
+      prisma.message.count().catch(() => 0),
+      prisma.message.count({ where: { direction: "outbound" } }).catch(() => 0),
+      prisma.message.count({ where: { direction: "inbound" } }).catch(() => 0),
       prisma.message.count({
         where: {
           direction: "outbound",
           status: { in: ["delivered", "read"] },
         },
-      }),
-      prisma.message.count({ where: { status: "read" } }),
-      prisma.contact.count(),
-      prisma.contact.count({ where: { status: "active" } }),
+      }).catch(() => 0),
+      prisma.message.count({ where: { status: "read" } }).catch(() => 0),
+      prisma.contact.count().catch(() => 0),
+      prisma.contact.count({ where: { status: "active" } }).catch(() => 0),
+      prisma.message.count({
+        where: {
+          direction: "outbound",
+          timestamp: { gte: todayStart },
+        },
+      }).catch(() => 0),
+      prisma.message.count({
+        where: {
+          direction: "outbound",
+          status: { in: ["delivered", "read"] },
+          timestamp: { gte: todayStart },
+        },
+      }).catch(() => 0),
+      prisma.contact.count({
+        where: {
+          messages: {
+            some: {},
+          },
+        },
+      }).catch(() => 0),
     ]);
 
     // Calculate delivery rate and read rate based on real DB records
     const deliveryRate =
       totalOutbound > 0
         ? Math.round((deliveredOutbound / totalOutbound) * 100)
-        : totalMessages > 0
-        ? 100
         : 0;
 
     const readRate =
@@ -55,7 +79,7 @@ export async function GET() {
       },
       orderBy: { updatedAt: "desc" },
       take: 5,
-    });
+    }).catch(() => []);
 
     const recentInquiries = recentContacts.map((c) => {
       const latestMsg = c.messages[0];
@@ -92,6 +116,9 @@ export async function GET() {
         readMessages,
         totalContacts,
         activeContacts,
+        messagesSentToday,
+        messagesDeliveredToday,
+        openConversations,
         deliveryRate,
         readRate,
       },

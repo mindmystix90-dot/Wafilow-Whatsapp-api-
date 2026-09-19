@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import AppLayout from "@/components/AppLayout";
-import { Key, Shield, Globe, Send, Check, Copy, AlertCircle, Loader2, CheckCircle2 } from "lucide-react";
+import { Key, Shield, Globe, Send, Check, Copy, AlertCircle, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
 
 export default function SettingsPage() {
   const [phoneNumberId, setPhoneNumberId] = useState("");
@@ -22,6 +22,14 @@ export default function SettingsPage() {
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<{ messageId?: string; text?: string } | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
+
+  // Real Meta Connection Test state
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [connectionTestResult, setConnectionTestResult] = useState<{
+    message: string;
+    details?: { verifiedName?: string; displayPhoneNumber?: string; qualityRating?: string; verificationStatus?: string };
+  } | null>(null);
+  const [connectionTestError, setConnectionTestError] = useState<string | null>(null);
 
   const webhookUrl =
     typeof window !== "undefined"
@@ -126,6 +134,34 @@ export default function SettingsPage() {
     }
   };
 
+  const handleTestConnection = async () => {
+    setIsTestingConnection(true);
+    setConnectionTestError(null);
+    setConnectionTestResult(null);
+
+    try {
+      const res = await fetch("/api/whatsapp/test-connection", {
+        method: "POST",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setConnectionTestError(data.error || "Meta Cloud API connection test failed.");
+      } else {
+        setConnectionTestResult({
+          message: data.message || "Connected successfully to Meta WhatsApp Cloud API.",
+          details: data.details,
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Network request failed";
+      setConnectionTestError(`Failed to reach connection test endpoint: ${msg}`);
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
   return (
     <AppLayout
       title="API & Meta WABA Settings"
@@ -133,10 +169,10 @@ export default function SettingsPage() {
     >
       <div className="space-y-6 max-w-4xl">
         {/* Connection Status Banner */}
-        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
+        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div
-              className={`w-3 h-3 rounded-full ${
+              className={`w-3 h-3 rounded-full shrink-0 ${
                 isConfigured ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
               }`}
             />
@@ -151,16 +187,59 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
-          <span
-            className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-              isConfigured
-                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
-            }`}
-          >
-            {isConfigured ? "Active & Ready" : "Setup Required"}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleTestConnection}
+              disabled={isTestingConnection || !isConfigured}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {isTestingConnection ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )}
+              Test Connection
+            </button>
+            <span
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${
+                isConfigured
+                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                  : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+              }`}
+            >
+              {isConfigured ? "Active & Ready" : "Setup Required"}
+            </span>
+          </div>
         </div>
+
+        {/* Real Connection Test Feedback Banners */}
+        {connectionTestError && (
+          <div className="p-4 rounded-xl text-xs bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300 border border-red-200 dark:border-red-800 flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
+            <div>
+              <strong className="font-semibold block mb-0.5">Meta API Connection Error:</strong>
+              <p className="leading-relaxed">{connectionTestError}</p>
+            </div>
+          </div>
+        )}
+
+        {connectionTestResult && (
+          <div className="p-4 rounded-xl text-xs bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-start gap-2.5">
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+            <div className="space-y-1">
+              <strong className="font-semibold block">{connectionTestResult.message}</strong>
+              {connectionTestResult.details && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono text-[11px]">
+                  <div>Verified Name: <span className="font-semibold">{connectionTestResult.details.verifiedName}</span></div>
+                  <div>Phone Number: <span className="font-semibold">{connectionTestResult.details.displayPhoneNumber}</span></div>
+                  <div>Quality Rating: <span className="font-semibold">{connectionTestResult.details.qualityRating}</span></div>
+                  <div>Status: <span className="font-semibold">{connectionTestResult.details.verificationStatus}</span></div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Meta Embedded Signup Banner */}
         <div className="p-6 rounded-2xl bg-gradient-to-r from-emerald-900 to-slate-900 text-white border border-emerald-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">

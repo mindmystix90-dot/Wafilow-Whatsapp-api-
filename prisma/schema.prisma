@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -35,17 +35,19 @@ model Session {
 }
 
 model User {
-  id            String     @id @default(cuid())
-  name          String?
-  email         String?    @unique
-  emailVerified DateTime?
-  image         String?
-  password      String?
-  role          String     @default("user")
-  accounts      Account[]
-  sessions      Session[]
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  id             String        @id @default(cuid())
+  name           String?
+  email          String?       @unique
+  emailVerified  DateTime?
+  image          String?
+  password       String?
+  role           String        @default("user")
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  accounts       Account[]
+  sessions       Session[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 }
 
 model VerificationToken {
@@ -56,33 +58,74 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-model Contact {
-  id             String    @id @default(cuid())
-  organizationId String?
-  name           String
-  phoneNumber    String    @unique
-  waId           String?
-  tags           String?
-  status         String    @default("active")
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @default(now()) @updatedAt
-  messages       Message[]
-
-  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+model Organization {
+  id                  String                    @id @default(cuid())
+  name                String                    @default("Default Organization")
+  wabaId              String?                   @unique
+  phoneNumberId       String?                   @unique
+  displayPhoneNumber  String?
+  accessToken         String?
+  webhookVerifyToken  String?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  users               User[]
+  contacts            Contact[]
+  conversations       Conversation[]
+  messages            Message[]
+  wabaAccounts        WhatsAppBusinessAccount[]
 }
 
-model Organization {
-  id                 String    @id @default(cuid())
-  name               String    @default("Default Organization")
-  wabaId             String?   @unique
-  phoneNumberId      String?   @unique
-  displayPhoneNumber String?
-  accessToken        String?
-  webhookVerifyToken String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  contacts           Contact[]
-  messages           Message[]
+model WhatsAppBusinessAccount {
+  id             String                @id @default(cuid())
+  organizationId String
+  wabaId         String                @unique
+  name           String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  phoneNumbers   WhatsAppPhoneNumber[]
+}
+
+model WhatsAppPhoneNumber {
+  id             String                   @id @default(cuid())
+  wabaAccountId  String?
+  phoneNumberId  String                   @unique
+  displayPhone   String?
+  verifiedName   String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  wabaAccount    WhatsAppBusinessAccount? @relation(fields: [wabaAccountId], references: [id], onDelete: Cascade)
+}
+
+model Contact {
+  id             String         @id @default(cuid())
+  organizationId String?
+  name           String
+  phoneNumber    String         @unique
+  waId           String?
+  tags           String?
+  status         String         @default("active")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @default(now()) @updatedAt
+  messages       Message[]
+  conversations  Conversation[]
+
+  organization   Organization?  @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+}
+
+model Conversation {
+  id             String        @id @default(cuid())
+  contactId      String
+  organizationId String?
+  status         String        @default("open") // "open" | "closed"
+  lastMessageAt  DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  contact        Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 }
 
 model Template {
@@ -96,14 +139,14 @@ model Template {
 }
 
 model Campaign {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   name        String
   templateId  String?
-  status      String   @default("draft")
+  status      String    @default("draft")
   scheduledAt DateTime?
-  sentCount   Int      @default(0)
-  totalCount  Int      @default(0)
-  createdAt   DateTime @default(now())
+  sentCount   Int       @default(0)
+  totalCount  Int       @default(0)
+  createdAt   DateTime  @default(now())
 }
 
 model Message {

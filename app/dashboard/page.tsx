@@ -23,6 +23,9 @@ interface DashboardStats {
   readMessages: number;
   totalContacts: number;
   activeContacts: number;
+  messagesSentToday?: number;
+  messagesDeliveredToday?: number;
+  openConversations?: number;
   deliveryRate: number;
   readRate: number;
 }
@@ -132,22 +135,22 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Sent (Outbound)</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Messages Sent Today</span>
             <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center">
               <Send className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-            {isLoading ? <Loader2 className="w-5 h-5 animate-spin text-slate-400" /> : stats?.totalOutbound ?? 0}
+            {isLoading ? <Loader2 className="w-5 h-5 animate-spin text-slate-400" /> : stats?.messagesSentToday ?? stats?.totalOutbound ?? 0}
           </div>
           <div className="mt-1 flex items-center gap-1 text-xs text-slate-500 font-medium">
-            <span>{stats?.totalMessages ?? 0} total database messages logged</span>
+            <span>{stats?.totalOutbound ?? 0} total outbound logged</span>
           </div>
         </div>
 
         <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Delivery Rate</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Messages Delivered Today</span>
             <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 flex items-center justify-center">
               <CheckCircle2 className="w-4 h-4" />
             </div>
@@ -156,36 +159,17 @@ export default function DashboardPage() {
             {isLoading ? (
               <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
             ) : (
-              `${stats?.deliveryRate ?? 0}%`
+              stats?.messagesDeliveredToday ?? stats?.deliveredOutbound ?? 0
             )}
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            {stats?.deliveredOutbound ?? 0} of {stats?.totalOutbound ?? 0} confirmed delivered
+            {stats?.deliveryRate ?? 0}% overall delivery rate
           </div>
         </div>
 
         <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Read Status Rate</span>
-            <div className="w-8 h-8 rounded-lg bg-violet-50 dark:bg-violet-950 text-violet-600 flex items-center justify-center">
-              <MessageSquare className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-            {isLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-            ) : (
-              `${stats?.readRate ?? 0}%`
-            )}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            {stats?.readMessages ?? 0} marked as read via webhook receipts
-          </div>
-        </div>
-
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Contacts</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Contacts</span>
             <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950 text-amber-600 flex items-center justify-center">
               <Users className="w-4 h-4" />
             </div>
@@ -194,11 +178,30 @@ export default function DashboardPage() {
             {isLoading ? (
               <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
             ) : (
-              stats?.totalContacts ?? 0
+              stats?.activeContacts ?? stats?.totalContacts ?? 0
             )}
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            {stats?.activeContacts ?? 0} active contacts in directory
+            {stats?.totalContacts ?? 0} total contacts in directory
+          </div>
+        </div>
+
+        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Open Conversations</span>
+            <div className="w-8 h-8 rounded-lg bg-violet-50 dark:bg-violet-950 text-violet-600 flex items-center justify-center">
+              <MessageSquare className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+            {isLoading ? (
+              <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+            ) : (
+              stats?.openConversations ?? stats?.activeContacts ?? 0
+            )}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {stats?.readRate ?? 0}% read receipt status rate
           </div>
         </div>
       </div>
