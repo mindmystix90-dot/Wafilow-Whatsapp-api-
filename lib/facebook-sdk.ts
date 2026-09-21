@@ -10,6 +10,7 @@
  */
 
 let sdkPromise: Promise<void> | null = null;
+let fbInitCompleted = false;
 
 /**
  * Loads and initializes the Facebook JavaScript SDK in Next.js/browser environment.
@@ -24,6 +25,7 @@ export function loadFacebookSdk(
 
   // If already loaded and initialized, resolve immediately
   if (window.FB) {
+    fbInitCompleted = true;
     return Promise.resolve();
   }
 
@@ -41,6 +43,7 @@ export function loadFacebookSdk(
           xfbml: true,
           version,
         });
+        fbInitCompleted = true;
         resolve();
       } catch (err) {
         reject(err);
@@ -195,14 +198,25 @@ export async function launchEmbeddedSignup({
 
     void configId;
 
-    console.log("Facebook SDK loaded successfully:", typeof window.FB !== "undefined" && window.FB !== null);
-
-    console.log({
-      origin: window.location.origin,
-      hostname: window.location.hostname,
-      protocol: window.location.protocol,
-      configId: "293484983375100",
+    console.log("=== FACEBOOK SDK DIAGNOSTIC ===");
+    console.log("window.location.href:", window.location.href);
+    console.log("window.location.origin:", window.location.origin);
+    console.log("document.location.href:", document.location.href);
+    console.log("document.location.origin:", document.location.origin);
+    console.log("window.self === window.top:", window.self === window.top);
+    console.log("hostname:", window.location.hostname);
+    console.log("protocol:", window.location.protocol);
+    console.log("FB exists:", !!window.FB);
+    console.log("FB.init completed:", fbInitCompleted);
+    console.log("FB App ID/config:", {
       appId: "3356483501181888",
+      configId: "293484983375100",
+    });
+    console.log("FB.login arguments:", {
+      config_id: "293484983375100",
+      response_type: "code",
+      override_default_response_type: true,
+      extras: { version: "v4" },
     });
 
     FB.login(fbLoginCallback, {
