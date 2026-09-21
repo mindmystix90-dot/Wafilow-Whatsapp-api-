@@ -11,6 +11,7 @@ export interface ServerWhatsAppEnv {
   verifyToken: string;
   appId?: string;
   appSecret?: string;
+  configId?: string;
   isConfigured: boolean;
 }
 
@@ -67,6 +68,11 @@ export function getServerWhatsAppEnv(): ServerWhatsAppEnv {
     process.env.FACEBOOK_APP_SECRET ||
     undefined;
 
+  const configId =
+    process.env.META_CONFIG_ID ||
+    process.env.META_EMBEDDED_SIGNUP_CONFIG_ID ||
+    "293484983375100";
+
   const isConfigured = Boolean(accessToken && phoneNumberId);
 
   return {
@@ -75,8 +81,9 @@ export function getServerWhatsAppEnv(): ServerWhatsAppEnv {
     wabaId: wabaId?.trim(),
     apiVersion: apiVersion.trim(),
     verifyToken: verifyToken.trim(),
-    appId: appId?.trim(),
+    appId: appId?.trim() || "3356483501181888",
     appSecret: appSecret?.trim(),
+    configId: configId.trim(),
     isConfigured,
   };
 }

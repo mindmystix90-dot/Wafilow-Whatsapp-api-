@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import AppLayout from "@/components/AppLayout";
 import { Key, Shield, Globe, Send, Check, Copy, AlertCircle, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
+import { launchEmbeddedSignup } from "@/lib/facebook-sdk";
 
 export default function SettingsPage() {
   const [phoneNumberId, setPhoneNumberId] = useState("");
@@ -13,6 +14,24 @@ export default function SettingsPage() {
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [isConfigured, setIsConfigured] = useState(false);
   const [hasServerToken, setHasServerToken] = useState(false);
+
+  // Business & Phone Details from Database
+  const [businessName, setBusinessName] = useState<string | null>(null);
+  const [displayPhone, setDisplayPhone] = useState<string | null>(null);
+  const [verifiedName, setVerifiedName] = useState<string | null>(null);
+  const [appId, setAppId] = useState("3356483501181888");
+  const [configId, setConfigId] = useState("293484983375100");
+
+  // Embedded Signup state
+  const [isLaunchingSignup, setIsLaunchingSignup] = useState(false);
+  const [signupSuccess, setSignupSuccess] = useState<{
+    businessName?: string | null;
+    wabaId?: string | null;
+    phoneNumberId?: string | null;
+    displayPhone?: string | null;
+    verifiedName?: string | null;
+  } | null>(null);
+  const [signupError, setSignupError] = useState<string | null>(null);
 
   // Save config state
   const [isSaving, setIsSaving] = useState(false);
@@ -38,17 +57,24 @@ export default function SettingsPage() {
 
   // Load existing configuration status on mount
   useEffect(() => {
-    async function loadConfig() {
+    let isMounted = true;
+
+    async function fetchInitialConfig() {
       try {
         const res = await fetch("/api/whatsapp/config");
-        if (res.ok) {
+        if (res.ok && isMounted) {
           const data = await res.json();
-          if (data.success) {
+          if (data.success && isMounted) {
             setPhoneNumberId(data.phoneNumberId || "");
             setWabaId(data.wabaId || "");
             setVerifyToken(data.verifyToken || "wafilow_webhook_token_secure_9921");
             setIsConfigured(data.configured || false);
             setHasServerToken(data.hasAccessToken || false);
+            if (data.appId) setAppId(data.appId);
+            if (data.configId) setConfigId(data.configId);
+            if (data.businessName) setBusinessName(data.businessName);
+            if (data.displayPhoneNumber) setDisplayPhone(data.displayPhoneNumber);
+            if (data.verifiedName) setVerifiedName(data.verifiedName);
             if (data.hasAccessToken) {
               setAccessToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
             }
@@ -58,13 +84,97 @@ export default function SettingsPage() {
         console.warn("Could not load WhatsApp config:", err);
       }
     }
-    loadConfig();
+
+    fetchInitialConfig();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  const handleLaunchEmbeddedSignup = () => {
-    alert(
-      "Meta Embedded Signup SDK: In production with a verified Meta App, this initiates the official Meta Facebook popup login flow to provision WABA IDs and Phone Number IDs directly."
-    );
+  const refreshConfig = async () => {
+    try {
+      const res = await fetch("/api/whatsapp/config");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setPhoneNumberId(data.phoneNumberId || "");
+          setWabaId(data.wabaId || "");
+          setVerifyToken(data.verifyToken || "wafilow_webhook_token_secure_9921");
+          setIsConfigured(data.configured || false);
+          setHasServerToken(data.hasAccessToken || false);
+          if (data.appId) setAppId(data.appId);
+          if (data.configId) setConfigId(data.configId);
+          if (data.businessName) setBusinessName(data.businessName);
+          if (data.displayPhoneNumber) setDisplayPhone(data.displayPhoneNumber);
+          if (data.verifiedName) setVerifiedName(data.verifiedName);
+          if (data.hasAccessToken) {
+            setAccessToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Could not reload WhatsApp config:", err);
+    }
+  };
+
+  const handleLaunchEmbeddedSignup = async () => {
+    setIsLaunchingSignup(true);
+    setSignupError(null);
+    setSignupSuccess(null);
+
+    try {
+      // 1. Launch real Meta Facebook JS SDK popup flow
+      const signupResult = await launchEmbeddedSignup({
+        appId: appId || "3356483501181888",
+        configId: configId || "293484983375100",
+        version: "v26.0",
+      });
+
+      // 2. Send authorization code and session IDs to server
+      const res = await fetch("/api/whatsapp/embedded-signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: signupResult.code,
+          wabaId: signupResult.wabaId,
+          phoneNumberId: signupResult.phoneNumberId,
+          sessionInfo: signupResult.sessionInfo,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to complete Embedded Signup on the server.");
+      }
+
+      // 3. Update local state with real database data
+      setIsConfigured(true);
+      setHasServerToken(true);
+      setWabaId(data.wabaId || "");
+      setPhoneNumberId(data.phoneNumberId || "");
+      setBusinessName(data.businessName || null);
+      setDisplayPhone(data.displayPhoneNumber || null);
+      setVerifiedName(data.verifiedName || null);
+      setAccessToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
+
+      setSignupSuccess({
+        businessName: data.businessName,
+        wabaId: data.wabaId,
+        phoneNumberId: data.phoneNumberId,
+        displayPhone: data.displayPhoneNumber,
+        verifiedName: data.verifiedName,
+      });
+
+      // Reload config from server
+      await refreshConfig();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Embedded Signup failed.";
+      setSignupError(msg);
+    } finally {
+      setIsLaunchingSignup(false);
+    }
   };
 
   const handleSaveCredentials = async (e: React.FormEvent) => {
@@ -243,24 +353,112 @@ export default function SettingsPage() {
 
         {/* Meta Embedded Signup Banner */}
         <div className="p-6 rounded-2xl bg-gradient-to-r from-emerald-900 to-slate-900 text-white border border-emerald-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 block mb-1">
-              1-Click Meta Onboarding
-            </span>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                1-Click Meta Onboarding
+              </span>
+              {isConfigured && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  Meta WABA Linked
+                </span>
+              )}
+            </div>
             <h3 className="text-lg font-bold">Connect WhatsApp via Embedded Signup</h3>
-            <p className="text-xs text-slate-300 mt-1 max-w-lg">
+            <p className="text-xs text-slate-300 max-w-lg">
               Seamlessly link your Meta Business Manager, claim phone numbers, and authorize WhatsApp messaging permissions in seconds.
             </p>
+
+            {/* Connected Account Database Summary */}
+            {isConfigured && (
+              <div className="pt-2 font-mono text-xs text-emerald-200/90 flex flex-wrap gap-x-4 gap-y-1">
+                {businessName && (
+                  <div>
+                    Business: <span className="text-white font-semibold">{businessName}</span>
+                  </div>
+                )}
+                {wabaId && (
+                  <div>
+                    WABA ID: <span className="text-white font-semibold">{wabaId}</span>
+                  </div>
+                )}
+                {(displayPhone || phoneNumberId) && (
+                  <div>
+                    Phone:{" "}
+                    <span className="text-white font-semibold">
+                      {displayPhone || phoneNumberId}
+                      {verifiedName ? ` (${verifiedName})` : ""}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+
           <button
             type="button"
+            id="connect-whatsapp-embedded-button"
             onClick={handleLaunchEmbeddedSignup}
-            className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-xs sm:text-sm shadow-md transition-all flex items-center gap-2 whitespace-nowrap"
+            disabled={isLaunchingSignup}
+            className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm shadow-md transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer shrink-0"
           >
-            <Globe className="w-4 h-4" />
-            Launch Embedded Signup
+            {isLaunchingSignup ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Connecting with Meta...
+              </>
+            ) : (
+              <>
+                <Globe className="w-4 h-4" />
+                {isConfigured ? "Reconnect WhatsApp Business" : "Connect WhatsApp"}
+              </>
+            )}
           </button>
         </div>
+
+        {/* Embedded Signup Error Banner */}
+        {signupError && (
+          <div className="p-4 rounded-xl text-xs bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300 border border-red-200 dark:border-red-800 flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
+            <div>
+              <strong className="font-semibold block mb-0.5">Embedded Signup Notice:</strong>
+              <p className="leading-relaxed">{signupError}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Embedded Signup Success Banner */}
+        {signupSuccess && (
+          <div className="p-4 rounded-xl text-xs bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-start gap-2.5">
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+            <div className="space-y-1">
+              <strong className="font-semibold block">WhatsApp Business Account Connected Successfully</strong>
+              <p className="leading-relaxed">
+                Your Meta WABA and Phone Number have been securely registered to your organization.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 font-mono text-[11px]">
+                {signupSuccess.businessName && (
+                  <div>
+                    Business: <span className="font-semibold">{signupSuccess.businessName}</span>
+                  </div>
+                )}
+                {signupSuccess.wabaId && (
+                  <div>
+                    WABA ID: <span className="font-semibold">{signupSuccess.wabaId}</span>
+                  </div>
+                )}
+                {(signupSuccess.displayPhone || signupSuccess.phoneNumberId) && (
+                  <div>
+                    Phone:{" "}
+                    <span className="font-semibold">
+                      {signupSuccess.displayPhone || signupSuccess.phoneNumberId}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Credentials Form */}
         <form

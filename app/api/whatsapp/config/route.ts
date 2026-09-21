@@ -20,6 +20,40 @@ export async function GET(req: NextRequest) {
     const proto = req.headers.get("x-forwarded-proto") || "https";
     const webhookUrl = `${proto}://${host}/api/webhook`;
 
+    let org = null;
+    if (orgId) {
+      org = await prisma.organization.findUnique({
+        where: { id: orgId },
+        include: {
+          wabaAccounts: {
+            include: { phoneNumbers: true },
+          },
+        },
+      });
+    } else {
+      org = await prisma.organization.findFirst({
+        where: {
+          OR: [
+            { accessToken: { not: null } },
+            { phoneNumberId: { not: null } },
+            { wabaId: { not: null } },
+          ],
+        },
+        include: {
+          wabaAccounts: {
+            include: { phoneNumbers: true },
+          },
+        },
+      });
+    }
+
+    const activeWaba =
+      org?.wabaAccounts?.find((w) => w.wabaId === config.wabaId) || org?.wabaAccounts?.[0];
+    const activePhone =
+      activeWaba?.phoneNumbers?.find((p) => p.phoneNumberId === config.phoneNumberId) ||
+      org?.wabaAccounts?.flatMap((w) => w.phoneNumbers)?.find((p) => p.phoneNumberId === config.phoneNumberId) ||
+      activeWaba?.phoneNumbers?.[0];
+
     return NextResponse.json({
       success: true,
       configured: config.isConfigured,
@@ -27,7 +61,11 @@ export async function GET(req: NextRequest) {
       wabaId: config.wabaId,
       verifyToken: config.webhookVerifyToken,
       hasAccessToken: Boolean(config.accessToken),
-      appId: config.appId,
+      appId: config.appId || process.env.META_APP_ID || "3356483501181888",
+      configId: process.env.META_CONFIG_ID || "293484983375100",
+      businessName: activeWaba?.name || org?.name || null,
+      displayPhoneNumber: activePhone?.displayPhone || org?.displayPhoneNumber || null,
+      verifiedName: activePhone?.verifiedName || null,
       webhookUrl,
     });
   } catch (error: unknown) {
