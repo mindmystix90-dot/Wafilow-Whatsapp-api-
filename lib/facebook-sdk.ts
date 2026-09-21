@@ -6,7 +6,7 @@
  *
  * Meta App ID: 3356483501181888
  * Embedded Signup Configuration ID: 293484983375100
- * Facebook JS SDK version: v26.0
+ * Facebook JS SDK version: v21.0
  */
 
 let sdkPromise: Promise<void> | null = null;
@@ -17,7 +17,7 @@ let fbInitCompleted = false;
  */
 export function loadFacebookSdk(
   appId: string = "3356483501181888",
-  version: string = "v26.0"
+  version: string = "v21.0"
 ): Promise<void> {
   if (typeof window === "undefined") {
     return Promise.resolve();
@@ -96,7 +96,7 @@ export interface EmbeddedSignupResult {
 export async function launchEmbeddedSignup({
   appId = "3356483501181888",
   configId = "293484983375100",
-  version = "v26.0",
+  version = "v21.0",
 }: {
   appId?: string;
   configId?: string;

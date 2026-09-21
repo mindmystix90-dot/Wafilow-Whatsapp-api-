@@ -128,7 +128,7 @@ export default function SettingsPage() {
       const signupResult = await launchWhatsAppSignup({
         appId: appId || "3356483501181888",
         configId: configId || "293484983375100",
-        version: "v26.0",
+        version: "v21.0",
       });
 
       // 2. Send authorization code and session IDs to server
