@@ -195,6 +195,16 @@ export async function launchEmbeddedSignup({
 
     void configId;
 
+    console.log("Facebook SDK loaded successfully:", typeof window.FB !== "undefined" && window.FB !== null);
+
+    console.log({
+      origin: window.location.origin,
+      hostname: window.location.hostname,
+      protocol: window.location.protocol,
+      configId: "293484983375100",
+      appId: "3356483501181888",
+    });
+
     FB.login(fbLoginCallback, {
       config_id: "293484983375100",
       response_type: "code",
