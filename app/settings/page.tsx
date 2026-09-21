@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import AppLayout from "@/components/AppLayout";
 import { Key, Shield, Globe, Send, Check, Copy, AlertCircle, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
-import { launchEmbeddedSignup } from "@/lib/facebook-sdk";
+import { launchWhatsAppSignup } from "@/lib/facebook-sdk";
 
 export default function SettingsPage() {
   const [phoneNumberId, setPhoneNumberId] = useState("");
@@ -124,8 +124,8 @@ export default function SettingsPage() {
     setSignupSuccess(null);
 
     try {
-      // 1. Launch real Meta Facebook JS SDK popup flow
-      const signupResult = await launchEmbeddedSignup({
+      // 1. Launch real Meta Facebook JS SDK popup flow: launchWhatsAppSignup() -> FB.login()
+      const signupResult = await launchWhatsAppSignup({
         appId: appId || "3356483501181888",
         configId: configId || "293484983375100",
         version: "v26.0",

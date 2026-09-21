@@ -155,50 +155,61 @@ export async function launchEmbeddedSignup({
     window.addEventListener("message", sessionMessageListener);
 
     // Launch Facebook Login for Business
-    const fb = window.FB;
-    if (!fb) {
+    const FB = window.FB;
+    if (!FB) {
       window.removeEventListener("message", sessionMessageListener);
       reject(new Error("Facebook JavaScript SDK failed to initialize."));
       return;
     }
 
-    fb.login(
-      (response) => {
-        window.removeEventListener("message", sessionMessageListener);
+    const fbLoginCallback = (response: FbResponse) => {
+      window.removeEventListener("message", sessionMessageListener);
 
-        if (isCancelled) {
-          reject(new Error("Embedded Signup was cancelled by the user."));
-          return;
-        }
-
-        if (metaErrorMessage) {
-          reject(new Error(metaErrorMessage));
-          return;
-        }
-
-        const code = response?.authResponse?.code;
-        if (!code) {
-          reject(
-            new Error(
-              "Meta Embedded Signup was closed or authorization was cancelled. No temporary authorization code was returned."
-            )
-          );
-          return;
-        }
-
-        resolve({
-          code,
-          wabaId: capturedWabaId,
-          phoneNumberId: capturedPhoneId,
-          sessionInfo: capturedSessionInfo,
-        });
-      },
-      {
-        config_id: configId,
-        response_type: "code",
-        override_default_response_type: true,
-        extras: { version: "v4" },
+      if (isCancelled) {
+        reject(new Error("Embedded Signup was cancelled by the user."));
+        return;
       }
-    );
+
+      if (metaErrorMessage) {
+        reject(new Error(metaErrorMessage));
+        return;
+      }
+
+      const code = response?.authResponse?.code;
+      if (!code) {
+        reject(
+          new Error(
+            "Meta Embedded Signup was closed or authorization was cancelled. No temporary authorization code was returned."
+          )
+        );
+        return;
+      }
+
+      resolve({
+        code,
+        wabaId: capturedWabaId,
+        phoneNumberId: capturedPhoneId,
+        sessionInfo: capturedSessionInfo,
+      });
+    };
+
+    void configId;
+
+    FB.login(fbLoginCallback, {
+      config_id: "293484983375100",
+      response_type: "code",
+      override_default_response_type: true,
+      extras: { version: "v4" },
+    });
   });
+}
+
+/**
+ * Direct alias for launchEmbeddedSignup to trace the exact runtime flow:
+ * Connect WhatsApp button -> launchWhatsAppSignup() -> FB.login()
+ */
+export const launchWhatsAppSignup = launchEmbeddedSignup;
+
+if (typeof window !== "undefined") {
+  (window as unknown as { launchWhatsAppSignup?: typeof launchEmbeddedSignup }).launchWhatsAppSignup = launchEmbeddedSignup;
 }
