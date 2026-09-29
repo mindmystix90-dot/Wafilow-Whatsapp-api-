@@ -23,9 +23,19 @@ export function loadFacebookSdk(
     return Promise.resolve();
   }
 
-  // If already loaded and initialized, resolve immediately
+  // If already loaded and initialized, ensure FB.init is run with target version
   if (window.FB) {
-    fbInitCompleted = true;
+    try {
+      window.FB.init({
+        appId,
+        cookie: true,
+        xfbml: true,
+        version,
+      });
+      fbInitCompleted = true;
+    } catch {
+      // Re-init guard
+    }
     return Promise.resolve();
   }
 
@@ -54,7 +64,35 @@ export function loadFacebookSdk(
     const existingScript = document.getElementById("facebook-jssdk");
     if (existingScript) {
       if (window.FB) {
+        try {
+          window.FB.init({
+            appId,
+            cookie: true,
+            xfbml: true,
+            version,
+          });
+          fbInitCompleted = true;
+        } catch {
+          // Re-init guard
+        }
         resolve();
+      } else {
+        existingScript.addEventListener("load", () => {
+          if (window.FB) {
+            try {
+              window.FB.init({
+                appId,
+                cookie: true,
+                xfbml: true,
+                version,
+              });
+              fbInitCompleted = true;
+            } catch {
+              // Re-init guard
+            }
+          }
+          resolve();
+        });
       }
       return;
     }
@@ -196,7 +234,15 @@ export async function launchEmbeddedSignup({
       });
     };
 
-    void configId;
+    const effectiveConfigId = (configId || "293484983375100").trim();
+    const effectiveAppId = (appId || "3356483501181888").trim();
+
+    const loginOptions: FbLoginOptions = {
+      config_id: effectiveConfigId,
+      response_type: "code",
+      override_default_response_type: true,
+      extras: { version: "v4" },
+    };
 
     console.log("=== FACEBOOK SDK DIAGNOSTIC ===");
     console.log("window.location.href:", window.location.href);
@@ -209,22 +255,12 @@ export async function launchEmbeddedSignup({
     console.log("FB exists:", !!window.FB);
     console.log("FB.init completed:", fbInitCompleted);
     console.log("FB App ID/config:", {
-      appId: "3356483501181888",
-      configId: "293484983375100",
+      appId: effectiveAppId,
+      configId: effectiveConfigId,
     });
-    console.log("FB.login arguments:", {
-      config_id: "293484983375100",
-      response_type: "code",
-      override_default_response_type: true,
-      extras: { version: "v4" },
-    });
+    console.log("FB.login arguments:", loginOptions);
 
-    FB.login(fbLoginCallback, {
-      config_id: "293484983375100",
-      response_type: "code",
-      override_default_response_type: true,
-      extras: { version: "v4" },
-    });
+    FB.login(fbLoginCallback, loginOptions);
   });
 }
 
