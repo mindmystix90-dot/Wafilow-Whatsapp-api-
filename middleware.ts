@@ -1,6 +1,8 @@
-import { withAuth } from "next-auth/middleware";
+import { withAuth, NextRequestWithAuth } from "next-auth/middleware";
+import { NextRequest, NextResponse } from "next/server";
+import type { NextFetchEvent } from "next/server";
 
-export default withAuth({
+const authMiddleware = withAuth({
   callbacks: {
     authorized: ({ token }) => !!token,
   },
@@ -9,6 +11,26 @@ export default withAuth({
   },
   secret: process.env.NEXTAUTH_SECRET,
 });
+
+const CANONICAL_HOST = "wafilow-whatsapp-api.vercel.app";
+
+export default async function middleware(req: NextRequest, event: NextFetchEvent) {
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
+
+  // If request arrives on any Vercel preview domain, redirect to canonical production domain
+  if (host.endsWith(".vercel.app") && host !== CANONICAL_HOST) {
+    const url = req.nextUrl.clone();
+    url.protocol = "https:";
+    url.host = CANONICAL_HOST;
+    url.port = "";
+    return NextResponse.redirect(url, { status: 308 });
+  }
+
+  return (authMiddleware as unknown as (r: NextRequestWithAuth, e: NextFetchEvent) => Promise<NextResponse>)(
+    req as NextRequestWithAuth,
+    event
+  );
+}
 
 export const config = {
   matcher: [
@@ -19,6 +41,7 @@ export const config = {
     "/templates/:path*",
     "/automations/:path*",
     "/analytics/:path*",
+    "/settings",
     "/settings/:path*",
     "/team/:path*",
   ],

@@ -140,11 +140,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Base origin determination for response URL
-    const origin =
+    const rawOrigin =
       process.env.NEXTAUTH_URL ||
       (req.headers.get("x-forwarded-host")
         ? `https://${req.headers.get("x-forwarded-host")}`
         : new URL(req.url).origin);
+    const origin =
+      rawOrigin.includes(".vercel.app") && !rawOrigin.includes("wafilow-whatsapp-api.vercel.app")
+        ? "https://wafilow-whatsapp-api.vercel.app"
+        : rawOrigin;
 
     // ==========================================================
     // CASE A: Meta Data Deletion Callback (signed_request)

@@ -144,6 +144,22 @@ export async function launchEmbeddedSignup({
     throw new Error("Embedded Signup can only be launched in a browser environment.");
   }
 
+  // Ensure Embedded Signup flow only originates from the registered Meta production domain
+  const CANONICAL_PRODUCTION_ORIGIN = "https://wafilow-whatsapp-api.vercel.app";
+  const CANONICAL_HOST = "wafilow-whatsapp-api.vercel.app";
+
+  if (
+    typeof window !== "undefined" &&
+    window.location.hostname.endsWith(".vercel.app") &&
+    window.location.hostname !== CANONICAL_HOST
+  ) {
+    console.warn(
+      `[Embedded Signup] Preview domain detected (${window.location.hostname}). Redirecting to production domain ${CANONICAL_PRODUCTION_ORIGIN}/settings.`
+    );
+    window.location.href = `${CANONICAL_PRODUCTION_ORIGIN}/settings`;
+    return new Promise<EmbeddedSignupResult>(() => {});
+  }
+
   // Ensure Facebook SDK is initialized
   await loadFacebookSdk(appId, version);
 

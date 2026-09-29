@@ -52,8 +52,10 @@ export default function SettingsPage() {
 
   const webhookUrl =
     typeof window !== "undefined"
-      ? `${window.location.origin}/api/webhook`
-      : "https://your-domain.com/api/webhook";
+      ? (window.location.hostname.endsWith(".vercel.app") && window.location.hostname !== "wafilow-whatsapp-api.vercel.app"
+          ? "https://wafilow-whatsapp-api.vercel.app/api/webhook"
+          : `${window.location.origin}/api/webhook`)
+      : "https://wafilow-whatsapp-api.vercel.app/api/webhook";
 
   // Load existing configuration status on mount
   useEffect(() => {
@@ -119,6 +121,16 @@ export default function SettingsPage() {
   };
 
   const handleLaunchEmbeddedSignup = async () => {
+    // If user somehow triggers flow on a Vercel preview deployment, redirect to canonical production domain
+    if (
+      typeof window !== "undefined" &&
+      window.location.hostname.endsWith(".vercel.app") &&
+      window.location.hostname !== "wafilow-whatsapp-api.vercel.app"
+    ) {
+      window.location.href = "https://wafilow-whatsapp-api.vercel.app/settings";
+      return;
+    }
+
     setIsLaunchingSignup(true);
     setSignupError(null);
     setSignupSuccess(null);
