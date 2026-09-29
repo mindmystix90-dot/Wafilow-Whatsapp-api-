@@ -257,7 +257,9 @@ export async function launchEmbeddedSignup({
       config_id: effectiveConfigId,
       response_type: "code",
       override_default_response_type: true,
-      extras: {},
+      extras: {
+        setup: {},
+      },
     };
 
     console.log("=== FACEBOOK SDK DIAGNOSTIC ===");
