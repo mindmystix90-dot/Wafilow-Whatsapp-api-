@@ -29,7 +29,7 @@ export function loadFacebookSdk(
       window.FB.init({
         appId,
         cookie: true,
-        xfbml: true,
+        xfbml: false,
         version,
       });
       fbInitCompleted = true;
@@ -50,7 +50,7 @@ export function loadFacebookSdk(
         window.FB?.init({
           appId,
           cookie: true,
-          xfbml: true,
+          xfbml: false,
           version,
         });
         fbInitCompleted = true;
@@ -68,7 +68,7 @@ export function loadFacebookSdk(
           window.FB.init({
             appId,
             cookie: true,
-            xfbml: true,
+            xfbml: false,
             version,
           });
           fbInitCompleted = true;
@@ -83,7 +83,7 @@ export function loadFacebookSdk(
               window.FB.init({
                 appId,
                 cookie: true,
-                xfbml: true,
+                xfbml: false,
                 version,
               });
               fbInitCompleted = true;
@@ -257,7 +257,7 @@ export async function launchEmbeddedSignup({
       config_id: effectiveConfigId,
       response_type: "code",
       override_default_response_type: true,
-      extras: { version: "v4" },
+      extras: {},
     };
 
     console.log("=== FACEBOOK SDK DIAGNOSTIC ===");
