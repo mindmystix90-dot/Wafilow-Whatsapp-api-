@@ -5,7 +5,7 @@
  * Strictly adheres to client-side security: NEVER exposes tokens, secrets, or codes.
  *
  * Meta App ID: 3356483501181888
- * Embedded Signup Configuration ID: 293484983375100
+ * Embedded Signup Configuration ID: 2934849833375100
  * Facebook JS SDK version: v24.0
  */
 
@@ -133,7 +133,7 @@ export interface EmbeddedSignupResult {
  */
 export async function launchEmbeddedSignup({
   appId = "3356483501181888",
-  configId = "293484983375100",
+  configId = "2934849833375100",
   version = "v24.0",
 }: {
   appId?: string;
@@ -250,7 +250,7 @@ export async function launchEmbeddedSignup({
       });
     };
 
-    const effectiveConfigId = (configId || "293484983375100").trim();
+    const effectiveConfigId = (configId || "2934849833375100").trim();
     const effectiveAppId = (appId || "3356483501181888").trim();
 
     const loginOptions: FbLoginOptions = {

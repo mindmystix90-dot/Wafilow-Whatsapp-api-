@@ -20,7 +20,7 @@ export default function SettingsPage() {
   const [displayPhone, setDisplayPhone] = useState<string | null>(null);
   const [verifiedName, setVerifiedName] = useState<string | null>(null);
   const [appId, setAppId] = useState("3356483501181888");
-  const [configId, setConfigId] = useState("293484983375100");
+  const [configId, setConfigId] = useState("2934849833375100");
 
   // Embedded Signup state
   const [isLaunchingSignup, setIsLaunchingSignup] = useState(false);
@@ -139,7 +139,7 @@ export default function SettingsPage() {
       // 1. Launch real Meta Facebook JS SDK popup flow: launchWhatsAppSignup() -> FB.login()
       const signupResult = await launchWhatsAppSignup({
         appId: appId || "3356483501181888",
-        configId: configId || "293484983375100",
+        configId: configId || "2934849833375100",
         version: "v24.0",
       });
 

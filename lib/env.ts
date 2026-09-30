@@ -71,7 +71,7 @@ export function getServerWhatsAppEnv(): ServerWhatsAppEnv {
   const configId =
     process.env.META_CONFIG_ID ||
     process.env.META_EMBEDDED_SIGNUP_CONFIG_ID ||
-    "293484983375100";
+    "2934849833375100";
 
   const isConfigured = Boolean(accessToken && phoneNumberId);
 

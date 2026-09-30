@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
       verifyToken: config.webhookVerifyToken,
       hasAccessToken: Boolean(config.accessToken),
       appId: config.appId || process.env.META_APP_ID || "3356483501181888",
-      configId: process.env.META_CONFIG_ID || "293484983375100",
+      configId: process.env.META_CONFIG_ID || "2934849833375100",
       businessName: activeWaba?.name || org?.name || null,
       displayPhoneNumber: activePhone?.displayPhone || org?.displayPhoneNumber || null,
       verifiedName: activePhone?.verifiedName || null,
