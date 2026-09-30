@@ -25,7 +25,7 @@ async function testMetaConnection() {
 
     const phoneNumberId = config.phoneNumberId || env.phoneNumberId;
     const accessToken = config.accessToken || env.accessToken;
-    const apiVersion = env.apiVersion || "v21.0";
+    const apiVersion = env.apiVersion || "v24.0";
 
     if (!phoneNumberId) {
       return NextResponse.json(

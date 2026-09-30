@@ -289,7 +289,7 @@ export default function InboxPage() {
   return (
     <AppLayout
       title="Live WhatsApp Inbox"
-      subtitle="Real-time two-way messaging directly connected to Meta Cloud API v21.0"
+      subtitle="Real-time two-way messaging directly connected to Meta Cloud API v24.0"
     >
       <div className="h-[calc(100vh-220px)] min-h-[500px] border border-slate-200 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900 shadow-sm overflow-hidden flex flex-col md:flex-row">
         {/* Left: Conversation List */}

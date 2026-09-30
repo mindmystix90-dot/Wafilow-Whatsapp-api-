@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     const env = getServerWhatsAppEnv();
     const appId = env.appId || "3356483501181888";
     const appSecret = env.appSecret;
-    const apiVersion = env.apiVersion || "v21.0";
+    const apiVersion = env.apiVersion || "v24.0";
 
     if (!appSecret) {
       console.error(

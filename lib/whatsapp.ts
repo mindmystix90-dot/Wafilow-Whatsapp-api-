@@ -173,7 +173,7 @@ export interface SendWhatsAppResult {
 }
 
 /**
- * Sends a real message or template through Meta WhatsApp Cloud API v21.0
+ * Sends a real message or template through Meta WhatsApp Cloud API v24.0
  */
 export async function sendWhatsAppMessage({
   to,
@@ -246,7 +246,7 @@ export async function sendWhatsAppMessage({
     };
   }
 
-  const endpoint = `https://graph.facebook.com/v21.0/${config.phoneNumberId}/messages`;
+  const endpoint = `https://graph.facebook.com/v24.0/${config.phoneNumberId}/messages`;
 
   try {
     const response = await fetch(endpoint, {

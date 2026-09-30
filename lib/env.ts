@@ -50,7 +50,7 @@ export function getServerWhatsAppEnv(): ServerWhatsAppEnv {
 
   const apiVersion =
     process.env.META_API_VERSION ||
-    "v21.0";
+    "v24.0";
 
   const verifyToken =
     process.env.META_VERIFY_TOKEN ||

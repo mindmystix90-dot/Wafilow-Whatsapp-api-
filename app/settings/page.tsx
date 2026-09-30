@@ -140,7 +140,7 @@ export default function SettingsPage() {
       const signupResult = await launchWhatsAppSignup({
         appId: appId || "3356483501181888",
         configId: configId || "293484983375100",
-        version: "v21.0",
+        version: "v24.0",
       });
 
       // 2. Send authorization code and session IDs to server
@@ -304,7 +304,7 @@ export default function SettingsPage() {
               </h4>
               <p className="text-xs text-slate-500">
                 {isConfigured
-                  ? "Connected and configured for WhatsApp Cloud API v21.0"
+                  ? "Connected and configured for WhatsApp Cloud API v24.0"
                   : "Awaiting Meta Cloud API Phone Number ID and Permanent Access Token"}
               </p>
             </div>
@@ -613,7 +613,7 @@ export default function SettingsPage() {
             Send Test WhatsApp Notification
           </h3>
           <p className="text-xs text-slate-500 mb-4">
-            Sends an immediate real WhatsApp test template (<code className="font-mono">hello_world</code>) through Meta Cloud API v21.0
+            Sends an immediate real WhatsApp test template (<code className="font-mono">hello_world</code>) through Meta Cloud API v24.0
           </p>
 
           <form onSubmit={handleSendTestMessage} className="space-y-3">

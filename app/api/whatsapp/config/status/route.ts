@@ -17,7 +17,7 @@ export async function GET() {
       phoneNumberId: config.phoneNumberId ? maskSecret(config.phoneNumberId) || config.phoneNumberId : null,
       wabaId: config.wabaId ? maskSecret(config.wabaId) || config.wabaId : null,
       accessTokenConfigured: Boolean(config.accessToken && config.accessToken.length > 0),
-      apiVersion: "v21.0",
+      apiVersion: "v24.0",
     });
   } catch (error: unknown) {
     const errorMsg = error instanceof Error ? error.message : "Error checking config status";

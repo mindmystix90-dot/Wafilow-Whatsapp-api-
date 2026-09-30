@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Call Meta Cloud API v21.0
+    // Call Meta Cloud API v24.0
     const sendResult = await sendWhatsAppMessage({
       to: contact.phoneNumber,
       type: "text",
