@@ -123,6 +123,8 @@ export interface EmbeddedSignupResult {
   wabaId?: string;
   phoneNumberId?: string;
   sessionInfo?: Record<string, unknown>;
+  event?: string;
+  isCoexistence?: boolean;
 }
 
 /**
@@ -171,6 +173,7 @@ export async function launchEmbeddedSignup({
     let capturedWabaId: string | undefined;
     let capturedPhoneId: string | undefined;
     let capturedSessionInfo: Record<string, unknown> = {};
+    let capturedEvent: string | undefined;
     let isCancelled = false;
     let metaErrorMessage: string | null = null;
 
@@ -188,8 +191,17 @@ export async function launchEmbeddedSignup({
         const payload = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
         if (payload && payload.type === "WA_EMBEDDED_SIGNUP") {
           capturedSessionInfo = { ...capturedSessionInfo, ...payload };
+          if (typeof payload.event === "string") {
+            capturedEvent = payload.event;
+          }
 
-          if (payload.event === "FINISH" || payload.event === "FINISH_ONLY_WABA") {
+          console.log("[Embedded Signup postMessage Event]:", payload.event, payload);
+
+          if (
+            payload.event === "FINISH" ||
+            payload.event === "FINISH_ONLY_WABA" ||
+            payload.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"
+          ) {
             const data = payload.data || {};
             const waba = data.waba_id || data.wabaId;
             const phone = data.phone_number_id || data.phoneNumberId;
@@ -242,11 +254,18 @@ export async function launchEmbeddedSignup({
         return;
       }
 
+      const isCoexistence =
+        capturedEvent === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" ||
+        capturedSessionInfo.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" ||
+        capturedSessionInfo.current_step === "finish_whatsapp_business_app_onboarding";
+
       resolve({
         code,
         wabaId: capturedWabaId,
         phoneNumberId: capturedPhoneId,
         sessionInfo: capturedSessionInfo,
+        event: capturedEvent,
+        isCoexistence: Boolean(isCoexistence),
       });
     };
 
@@ -259,6 +278,8 @@ export async function launchEmbeddedSignup({
       override_default_response_type: true,
       extras: {
         setup: {},
+        featureType: "whatsapp_business_app_onboarding",
+        sessionInfoVersion: "3",
       },
     };
 

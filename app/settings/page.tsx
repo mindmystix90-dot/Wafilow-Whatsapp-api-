@@ -30,6 +30,7 @@ export default function SettingsPage() {
     phoneNumberId?: string | null;
     displayPhone?: string | null;
     verifiedName?: string | null;
+    isCoexistence?: boolean;
   } | null>(null);
   const [signupError, setSignupError] = useState<string | null>(null);
 
@@ -152,6 +153,8 @@ export default function SettingsPage() {
           wabaId: signupResult.wabaId,
           phoneNumberId: signupResult.phoneNumberId,
           sessionInfo: signupResult.sessionInfo,
+          event: signupResult.event,
+          isCoexistence: signupResult.isCoexistence,
         }),
       });
 
@@ -171,12 +174,15 @@ export default function SettingsPage() {
       setVerifiedName(data.verifiedName || null);
       setAccessToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
 
+      const isCoexistenceActive = Boolean(data.isCoexistence || signupResult.isCoexistence);
+
       setSignupSuccess({
         businessName: data.businessName,
         wabaId: data.wabaId,
         phoneNumberId: data.phoneNumberId,
         displayPhone: data.displayPhoneNumber,
         verifiedName: data.verifiedName,
+        isCoexistence: isCoexistenceActive,
       });
 
       // Reload config from server
@@ -444,9 +450,22 @@ export default function SettingsPage() {
           <div className="p-4 rounded-xl text-xs bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-start gap-2.5">
             <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
             <div className="space-y-1">
-              <strong className="font-semibold block">WhatsApp Business Account Connected Successfully</strong>
+              <div className="flex items-center gap-2">
+                <strong className="font-semibold block">
+                  {signupSuccess.isCoexistence
+                    ? "WhatsApp Business App Coexistence Connected"
+                    : "WhatsApp Business Account Connected Successfully"}
+                </strong>
+                {signupSuccess.isCoexistence && (
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-600 text-white uppercase tracking-wider">
+                    Coexistence Active
+                  </span>
+                )}
+              </div>
               <p className="leading-relaxed">
-                Your Meta WABA and Phone Number have been securely registered to your organization.
+                {signupSuccess.isCoexistence
+                  ? "Coexistence enabled: Your existing WhatsApp Business App number is linked. You can continue chatting on your mobile app while accessing Cloud API v24.0 automation."
+                  : "Your Meta WABA and Phone Number have been securely registered to your organization."}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 font-mono text-[11px]">
                 {signupSuccess.businessName && (

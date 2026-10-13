@@ -74,7 +74,28 @@ export async function POST(req: NextRequest) {
 
     // 2. Parse request payload
     const body = await req.json().catch(() => ({}));
-    const { code, wabaId, phoneNumberId } = body;
+    const {
+      code,
+      wabaId,
+      phoneNumberId,
+      sessionInfo,
+      event: clientEvent,
+      isCoexistence: clientIsCoexistence,
+    } = body;
+
+    const detectedEvent =
+      clientEvent ||
+      (typeof sessionInfo === "object" && sessionInfo !== null
+        ? (sessionInfo as Record<string, unknown>).event
+        : undefined);
+
+    const isCoexistence = Boolean(
+      clientIsCoexistence ||
+      detectedEvent === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" ||
+      (typeof sessionInfo === "object" &&
+        sessionInfo !== null &&
+        (sessionInfo as Record<string, unknown>).featureType === "whatsapp_business_app_onboarding")
+    );
 
     if (!code || typeof code !== "string" || !code.trim()) {
       return NextResponse.json(
@@ -374,8 +395,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: "WhatsApp Business Account connected successfully via Embedded Signup.",
+      message: isCoexistence
+        ? "WhatsApp Business Account connected with Coexistence enabled (WhatsApp Business App + Cloud API)."
+        : "WhatsApp Business Account connected successfully via Embedded Signup.",
       configured: true,
+      isCoexistence,
+      onboardingEvent: detectedEvent || "FINISH",
       wabaId: resolvedWabaId,
       phoneNumberId: resolvedPhoneId,
       businessName: businessName || targetOrg.name,
