@@ -1,20 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
 :root {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
   --background: #f8fafc;
-  --foreground: #0f172a;
+  --foreground: #090e1a;
+  --surface: #ffffff;
+  --surface-subtle: #f1f5f9;
+  --border: #e2e8f0;
+  --primary: #4f46e5;
+  --accent-violet: #7c3aed;
+  --whatsapp-emerald: #10b981;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #090d16;
+    --background: #080c14;
     --foreground: #f8fafc;
+    --surface: #0f1626;
+    --surface-subtle: #151e33;
+    --border: #1e293b;
+    --primary: #6366f1;
+    --accent-violet: #8b5cf6;
+    --whatsapp-emerald: #10b981;
   }
+}
+
+html {
+  font-family: var(--font-sans);
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
 }

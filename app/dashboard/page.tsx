@@ -10,9 +10,11 @@ import {
   CheckCircle2,
   ArrowUpRight,
   ExternalLink,
-  Shield,
   Loader2,
   RefreshCw,
+  Smartphone,
+  CheckCheck,
+  AlertCircle,
 } from "lucide-react";
 
 interface DashboardStats {
@@ -102,181 +104,307 @@ export default function DashboardPage() {
   return (
     <AppLayout
       title="Dashboard Overview"
-      subtitle="Real-time metrics, messaging volume, and active customer sessions"
+      subtitle="Real-time database metrics, messaging volume, and active customer sessions"
       action={
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <button
             onClick={fetchDashboardData}
             disabled={isLoading}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
-            title="Refresh metrics"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1220] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+            title="Refresh metrics from database"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
-            Refresh
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-indigo-600" : ""}`} />
+            <span>Refresh</span>
           </button>
           <Link
-            href="/settings"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-medium transition-colors shadow-sm"
-          >
-            <Send className="w-4 h-4" />
-            Send Test Ping
-          </Link>
-          <Link
             href="/inbox"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-medium transition-colors shadow-sm"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-all shadow-sm cursor-pointer"
           >
-            <MessageSquare className="w-4 h-4" />
-            Live Inbox
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>Live Inbox</span>
           </Link>
         </div>
       }
     >
-      {/* Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Messages Sent Today</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center">
-              <Send className="w-4 h-4" />
+      <div className="space-y-6">
+        {/* Meta Configuration Status Banner */}
+        <div
+          className={`p-4 sm:p-5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+            metaConfig?.isConfigured
+              ? "bg-white dark:bg-[#0c1220] border-emerald-500/30 text-slate-900 dark:text-white shadow-sm"
+              : "bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-200"
+          }`}
+        >
+          <div className="flex items-start gap-3.5">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                metaConfig?.isConfigured
+                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                  : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+              }`}
+            >
+              {metaConfig?.isConfigured ? (
+                <Smartphone className="w-5 h-5" />
+              ) : (
+                <AlertCircle className="w-5 h-5" />
+              )}
             </div>
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-            {isLoading ? <Loader2 className="w-5 h-5 animate-spin text-slate-400" /> : stats?.messagesSentToday ?? stats?.totalOutbound ?? 0}
-          </div>
-          <div className="mt-1 flex items-center gap-1 text-xs text-slate-500 font-medium">
-            <span>{stats?.totalOutbound ?? 0} total outbound logged</span>
-          </div>
-        </div>
-
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Messages Delivered Today</span>
-            <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 flex items-center justify-center">
-              <CheckCircle2 className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-            {isLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-            ) : (
-              stats?.messagesDeliveredToday ?? stats?.deliveredOutbound ?? 0
-            )}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            {stats?.deliveryRate ?? 0}% overall delivery rate
-          </div>
-        </div>
-
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Contacts</span>
-            <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950 text-amber-600 flex items-center justify-center">
-              <Users className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-            {isLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-            ) : (
-              stats?.activeContacts ?? stats?.totalContacts ?? 0
-            )}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            {stats?.totalContacts ?? 0} total contacts in directory
-          </div>
-        </div>
-
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Open Conversations</span>
-            <div className="w-8 h-8 rounded-lg bg-violet-50 dark:bg-violet-950 text-violet-600 flex items-center justify-center">
-              <MessageSquare className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-            {isLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-            ) : (
-              stats?.openConversations ?? stats?.activeContacts ?? 0
-            )}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            {stats?.readRate ?? 0}% read receipt status rate
-          </div>
-        </div>
-      </div>
-
-      {/* Main Grid: Recent Activity & Meta WABA Tier */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Recent Broadcasts and Inbound Messages */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Active Inquiries from real database */}
-          <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="font-bold text-base text-slate-900 dark:text-white">Active Customer Inquiries</h3>
-                <p className="text-xs text-slate-500">Real customer conversations tracked in database</p>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm">
+                  {metaConfig?.isConfigured
+                    ? "Meta WhatsApp Cloud API v24.0 Connected"
+                    : "Meta Cloud API Credentials Required"}
+                </span>
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    metaConfig?.isConfigured
+                      ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                      : "bg-amber-500/20 text-amber-800 dark:text-amber-300"
+                  }`}
+                >
+                  {metaConfig?.isConfigured ? "Production Active" : "Pending Setup"}
+                </span>
               </div>
-              <Link href="/inbox" className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
-                Go to Inbox <ArrowUpRight className="w-3.5 h-3.5" />
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-2xl">
+                {metaConfig?.isConfigured
+                  ? `Active WABA ID ${metaConfig.wabaId} with Phone Number ID ${metaConfig.phoneNumberId}. Bi-directional webhook verification active.`
+                  : "Connect your Meta Business Manager account via 1-Click Embedded Signup or supply server environment credentials to enable messaging."}
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href="/settings"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap self-start sm:self-auto transition-colors"
+          >
+            <span>{metaConfig?.isConfigured ? "Manage API Settings" : "Configure Credentials"}</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        {/* Real Metrics Grid (Zero Fake Data) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Metric 1: Total Messages */}
+          <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0c1220] shadow-sm space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <span>Total Messages</span>
+              <MessageSquare className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div className="text-2xl sm:text-3xl font-black text-slate-950 dark:text-white font-mono">
+              {isLoading ? (
+                <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+              ) : (
+                stats?.totalMessages ?? 0
+              )}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60">
+              <span>{stats?.totalInbound ?? 0} Inbound</span>
+              <span>·</span>
+              <span>{stats?.totalOutbound ?? 0} Outbound</span>
+            </div>
+          </div>
+
+          {/* Metric 2: Delivery Rate */}
+          <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0c1220] shadow-sm space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <span>Delivery Rate</span>
+              <CheckCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div className="text-2xl sm:text-3xl font-black text-slate-950 dark:text-white font-mono">
+              {isLoading ? (
+                <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+              ) : stats?.totalOutbound && stats.totalOutbound > 0 ? (
+                `${stats.deliveryRate}%`
+              ) : (
+                "0%"
+              )}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/60">
+              {stats?.deliveredOutbound ?? 0} of {stats?.totalOutbound ?? 0} confirmed delivered
+            </div>
+          </div>
+
+          {/* Metric 3: Active Contacts */}
+          <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0c1220] shadow-sm space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <span>Customer Contacts</span>
+              <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div className="text-2xl sm:text-3xl font-black text-slate-950 dark:text-white font-mono">
+              {isLoading ? (
+                <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+              ) : (
+                stats?.totalContacts ?? 0
+              )}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/60">
+              {stats?.activeContacts ?? 0} active in directory
+            </div>
+          </div>
+
+          {/* Metric 4: Read Receipts Ratio */}
+          <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0c1220] shadow-sm space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <span>Read Rate</span>
+              <CheckCircle2 className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+            </div>
+            <div className="text-2xl sm:text-3xl font-black text-slate-950 dark:text-white font-mono">
+              {isLoading ? (
+                <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+              ) : stats?.totalMessages && stats.totalMessages > 0 ? (
+                `${stats.readRate}%`
+              ) : (
+                "0%"
+              )}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/60">
+              {stats?.readMessages ?? 0} messages confirmed read
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Operations & Recent Inquiries Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Quick Actions (1 col) */}
+          <div className="p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0c1220] shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Quick Operations</h3>
+
+            <div className="space-y-2.5">
+              <Link
+                href="/inbox"
+                className="flex items-center justify-between p-3 rounded-xl border border-slate-200/70 dark:border-slate-800 hover:border-indigo-500/50 bg-slate-50/70 dark:bg-slate-900/60 transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                    <MessageSquare className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-xs text-slate-900 dark:text-white">
+                      Live Customer Inbox
+                    </div>
+                    <div className="text-[11px] text-slate-500">Respond to customer chats in real time</div>
+                  </div>
+                </div>
+                <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-colors" />
+              </Link>
+
+              <Link
+                href="/contacts"
+                className="flex items-center justify-between p-3 rounded-xl border border-slate-200/70 dark:border-slate-800 hover:border-blue-500/50 bg-slate-50/70 dark:bg-slate-900/60 transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                    <Users className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-xs text-slate-900 dark:text-white">
+                      Add New Contact
+                    </div>
+                    <div className="text-[11px] text-slate-500">Register recipient phone numbers</div>
+                  </div>
+                </div>
+                <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 transition-colors" />
+              </Link>
+
+              <Link
+                href="/settings"
+                className="flex items-center justify-between p-3 rounded-xl border border-slate-200/70 dark:border-slate-800 hover:border-emerald-500/50 bg-slate-50/70 dark:bg-slate-900/60 transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                    <Send className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-xs text-slate-900 dark:text-white">
+                      Send Test WhatsApp Ping
+                    </div>
+                    <div className="text-[11px] text-slate-500">Dispatch verified HSM template</div>
+                  </div>
+                </div>
+                <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+              </Link>
+            </div>
+          </div>
+
+          {/* Recent Inquiries List (2 cols) */}
+          <div className="lg:col-span-2 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0c1220] shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                Recent Customer Sessions
+              </h3>
+              <Link
+                href="/inbox"
+                className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700"
+              >
+                View all conversations &rarr;
               </Link>
             </div>
 
             {isLoading ? (
-              <div className="py-8 flex items-center justify-center text-slate-400">
-                <Loader2 className="w-6 h-6 animate-spin" />
+              <div className="py-12 flex flex-col items-center justify-center gap-2 text-slate-400">
+                <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                <span className="text-xs">Loading database records...</span>
               </div>
             ) : recentInquiries.length === 0 ? (
-              <div className="py-8 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-                <MessageSquare className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-                <p className="text-sm font-medium text-slate-600 dark:text-slate-300">No customer conversations yet</p>
-                <p className="text-xs text-slate-400 mt-0.5">Incoming WhatsApp messages will appear here instantly</p>
-                <Link
-                  href="/inbox"
-                  className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700"
-                >
-                  Start New Chat in Inbox
-                </Link>
+              <div className="py-12 text-center rounded-xl bg-slate-50/70 dark:bg-slate-900/40 border border-dashed border-slate-200 dark:border-slate-800 p-6 space-y-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  No Customer Conversations Logged
+                </div>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  Once you receive an incoming WhatsApp message or send a test template, active customer inquiries will appear here automatically.
+                </p>
+                <div className="pt-2">
+                  <Link
+                    href="/settings"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors"
+                  >
+                    Send Test Ping
+                  </Link>
+                </div>
               </div>
             ) : (
-              <div className="space-y-3">
-                {recentInquiries.map((inquiry) => (
+              <div className="divide-y divide-slate-100 dark:divide-slate-800/80 overflow-hidden">
+                {recentInquiries.map((inq) => (
                   <Link
-                    key={inquiry.id}
-                    href="/inbox"
-                    className="flex items-start justify-between p-3 rounded-lg bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-slate-100 dark:border-slate-800 transition-colors"
+                    key={inq.id}
+                    href={`/inbox?contactId=${inq.id}`}
+                    className="flex items-center justify-between py-3.5 px-2 hover:bg-slate-50 dark:hover:bg-slate-900/60 rounded-xl transition-colors group"
                   >
-                    <div className="min-w-0 pr-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-sm text-slate-900 dark:text-white truncate">
-                          {inquiry.name}
-                        </span>
-                        <span className="text-xs font-mono text-slate-400">({inquiry.phone})</span>
-                        {inquiry.unread && (
-                          <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></span>
-                        )}
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-slate-900 to-indigo-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                        {inq.name.charAt(0).toUpperCase()}
                       </div>
-                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 line-clamp-1">
-                        {inquiry.direction === "outbound" && (
-                          <span className="font-medium text-emerald-600 mr-1">You:</span>
-                        )}
-                        {inquiry.lastMessage}
-                      </p>
+                      <div className="overflow-hidden">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-xs text-slate-900 dark:text-white truncate">
+                            {inq.name}
+                          </span>
+                          <span className="text-[11px] text-slate-400 font-mono">
+                            {inq.phone}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 truncate mt-0.5">
+                          {inq.lastMessage || "No messages logged yet"}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-right flex-shrink-0">
-                      <span className="text-[11px] text-slate-400 block">{inquiry.time}</span>
+
+                    <div className="text-right shrink-0 pl-3">
+                      <span className="text-[10px] text-slate-400 font-medium block">
+                        {inq.time}
+                      </span>
                       <span
-                        className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium mt-1 ${
-                          inquiry.status === "read"
-                            ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                            : inquiry.status === "delivered"
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                            : inquiry.status === "failed"
-                            ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300"
-                            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                        className={`text-[9px] font-bold uppercase tracking-wider ${
+                          inq.direction === "inbound"
+                            ? "text-blue-600 dark:text-blue-400"
+                            : "text-emerald-600 dark:text-emerald-400"
                         }`}
                       >
-                        {inquiry.status}
+                        {inq.direction}
                       </span>
                     </div>
                   </Link>
@@ -284,121 +412,8 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-
-          {/* Broadcast Campaigns info */}
-          <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-base text-slate-900 dark:text-white">Broadcast Campaigns</h3>
-                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
-                  Coming Soon (Post Meta Review)
-                </span>
-              </div>
-              <Link href="/campaigns" className="text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1">
-                Details <ArrowUpRight className="w-3.5 h-3.5" />
-              </Link>
-            </div>
-            <p className="text-xs text-slate-500 leading-relaxed mb-4">
-              Mass broadcast notifications to segmented audiences require Meta Cloud API Tier 2 messaging approval. During the current MVP evaluation phase, use the real 1-to-1 Live Inbox or Send Test Ping tool.
-            </p>
-            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <div>
-                <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 block">Single Message Dispatch (Live)</span>
-                <span className="text-[11px] text-slate-400">Available now via Live Inbox or Test Route</span>
-              </div>
-              <Link
-                href="/settings"
-                className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 transition-colors"
-              >
-                Send Test Template
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Col: Meta WABA Health & Quick Actions */}
-        <div className="space-y-6">
-          <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-            <h3 className="font-bold text-base text-slate-900 dark:text-white mb-3">WhatsApp Cloud API Status</h3>
-            
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">Phone Number ID</span>
-                <span className="font-mono font-medium text-slate-800 dark:text-slate-200">
-                  {metaConfig?.phoneNumberId || "Not set"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">WABA ID</span>
-                <span className="font-mono font-medium text-slate-800 dark:text-slate-200">
-                  {metaConfig?.wabaId || "Not set"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">Access Token</span>
-                <span className="font-semibold text-xs text-emerald-600">
-                  {metaConfig?.hasAccessToken ? "Configured (Server-Side)" : "Missing"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">Webhook Status</span>
-                <span className="font-semibold text-emerald-600 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Active & Verified
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-              <Link
-                href="/settings"
-                className="w-full py-2 px-3 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
-              >
-                Configure Meta Credentials
-                <ExternalLink className="w-3.5 h-3.5" />
-              </Link>
-            </div>
-          </div>
-
-          <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-            <h3 className="font-bold text-base text-slate-900 dark:text-white mb-2">Workspace Quick Links</h3>
-            <p className="text-xs text-slate-500 mb-4">Core functional modules</p>
-
-            <div className="space-y-2 text-xs">
-              <Link
-                href="/inbox"
-                className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-between font-medium text-slate-800 dark:text-slate-200 transition-colors"
-              >
-                <span className="flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-emerald-600" />
-                  Live Inbox & Chat Polling
-                </span>
-                <ArrowUpRight className="w-3.5 h-3.5 text-slate-400" />
-              </Link>
-              <Link
-                href="/contacts"
-                className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-between font-medium text-slate-800 dark:text-slate-200 transition-colors"
-              >
-                <span className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-blue-600" />
-                  Contacts Directory
-                </span>
-                <ArrowUpRight className="w-3.5 h-3.5 text-slate-400" />
-              </Link>
-              <Link
-                href="/settings"
-                className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-between font-medium text-slate-800 dark:text-slate-200 transition-colors"
-              >
-                <span className="flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-violet-600" />
-                  API Settings & Webhooks
-                </span>
-                <ArrowUpRight className="w-3.5 h-3.5 text-slate-400" />
-              </Link>
-            </div>
-          </div>
         </div>
       </div>
     </AppLayout>
   );
 }
-
