@@ -174,7 +174,7 @@ export default function SettingsPage() {
       setVerifiedName(data.verifiedName || null);
       setAccessToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
 
-      const isCoexistenceActive = Boolean(data.isCoexistence || signupResult.isCoexistence);
+      const isCoexistenceActive = Boolean(data.isCoexistence);
 
       setSignupSuccess({
         businessName: data.businessName,

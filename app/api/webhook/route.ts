@@ -32,6 +32,8 @@ interface MetaWebhookMessage {
   id: string;
   timestamp: string;
   type: string;
+  recipient_id?: string;
+  to?: string;
   text?: { body: string };
   button?: { text: string; payload?: string };
   interactive?: {
@@ -64,6 +66,7 @@ interface MetaWebhookChangeValue {
   };
   contacts?: MetaWebhookContact[];
   messages?: MetaWebhookMessage[];
+  message_echoes?: MetaWebhookMessage[];
   statuses?: MetaWebhookStatus[];
 }
 
@@ -93,7 +96,7 @@ export async function POST(req: NextRequest) {
       const changes = entry.changes || [];
 
       for (const change of changes) {
-        if (change.field !== "messages") continue;
+        if (change.field !== "messages" && change.field !== "smb_message_echoes") continue;
 
         const val: MetaWebhookChangeValue = change.value || {};
         const phoneNumberId = val.metadata?.phone_number_id;
@@ -142,9 +145,10 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // 3. Process Incoming WhatsApp Messages
-        if (val.messages && Array.isArray(val.messages)) {
-          for (const msg of val.messages) {
+        // 3. Process WhatsApp Messages (Inbound and Coexistence Outbound Echoes)
+        const incomingMessages = val.messages || val.message_echoes || [];
+        if (Array.isArray(incomingMessages) && incomingMessages.length > 0) {
+          for (const msg of incomingMessages) {
             const wamId = msg.id;
 
             // Deduplication: prevent processing duplicate webhook events
@@ -157,31 +161,34 @@ export async function POST(req: NextRequest) {
               continue;
             }
 
-            const senderPhone = msg.from;
-            if (!senderPhone) continue;
+            const isEcho = change.field === "smb_message_echoes" || Boolean(msg.recipient_id);
+            const targetCustomerPhone = isEcho ? (msg.recipient_id || msg.to || msg.from) : msg.from;
+            const messageDirection = isEcho ? "outbound" : "inbound";
+
+            if (!targetCustomerPhone) continue;
 
             // Resolve contact name from Meta contacts payload
-            const contactProfile = val.contacts?.find((c) => c.wa_id === senderPhone);
-            const contactName = contactProfile?.profile?.name || `+${senderPhone}`;
+            const contactProfile = val.contacts?.find((c) => c.wa_id === targetCustomerPhone);
+            const contactName = contactProfile?.profile?.name || `+${targetCustomerPhone}`;
 
             // Identify or create Contact
             let contact;
             try {
               contact = await prisma.contact.upsert({
-                where: { phoneNumber: senderPhone },
+                where: { phoneNumber: targetCustomerPhone },
                 update: {
                   name: contactProfile?.profile?.name ? contactProfile.profile.name : undefined,
-                  waId: senderPhone,
+                  waId: targetCustomerPhone,
                   organizationId: org.id,
                   updatedAt: new Date(),
                 },
                 create: {
                   name: contactName,
-                  phoneNumber: senderPhone,
-                  waId: senderPhone,
+                  phoneNumber: targetCustomerPhone,
+                  waId: targetCustomerPhone,
                   status: "active",
                   organizationId: org.id,
-                  tags: "WhatsApp Inbound",
+                  tags: isEcho ? "WhatsApp Coexistence Echo" : "WhatsApp Inbound",
                 },
               });
             } catch (contactErr) {
@@ -220,7 +227,7 @@ export async function POST(req: NextRequest) {
                   contactId: contact.id,
                   organizationId: org.id,
                   wamId,
-                  direction: "inbound",
+                  direction: messageDirection,
                   content: contentText,
                   type: msg.type || "text",
                   status: "delivered",
@@ -249,7 +256,7 @@ export async function POST(req: NextRequest) {
               }
 
               console.log(
-                `[Meta Webhook] Stored inbound message ${wamId} from ${contactName} (${senderPhone}) for Org ${org.name}`
+                `[Meta Webhook] Stored ${messageDirection} message ${wamId} for ${contactName} (${targetCustomerPhone}) in Org ${org.name}`
               );
             } catch (saveErr) {
               console.error("[Meta Webhook] Error persisting message:", saveErr);

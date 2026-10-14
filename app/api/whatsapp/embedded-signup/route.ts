@@ -80,22 +80,23 @@ export async function POST(req: NextRequest) {
       phoneNumberId,
       sessionInfo,
       event: clientEvent,
-      isCoexistence: clientIsCoexistence,
     } = body;
 
-    const detectedEvent =
-      clientEvent ||
-      (typeof sessionInfo === "object" && sessionInfo !== null
-        ? (sessionInfo as Record<string, unknown>).event
-        : undefined);
+    // Strict verification: Coexistence is NEVER trusted solely from a client-provided boolean.
+    // It must be verified from authentic Meta Embedded Signup postMessage session info.
+    const sessionPayload =
+      typeof sessionInfo === "object" && sessionInfo !== null
+        ? (sessionInfo as Record<string, unknown>)
+        : null;
 
-    const isCoexistence = Boolean(
-      clientIsCoexistence ||
-      detectedEvent === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" ||
-      (typeof sessionInfo === "object" &&
-        sessionInfo !== null &&
-        (sessionInfo as Record<string, unknown>).featureType === "whatsapp_business_app_onboarding")
-    );
+    const sessionType = sessionPayload?.type;
+    const sessionEvent =
+      (typeof sessionPayload?.event === "string" ? sessionPayload.event : undefined) ||
+      (typeof clientEvent === "string" ? clientEvent : undefined);
+
+    const isCoexistenceSession =
+      sessionType === "WA_EMBEDDED_SIGNUP" &&
+      sessionEvent === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING";
 
     if (!code || typeof code !== "string" || !code.trim()) {
       return NextResponse.json(
@@ -395,12 +396,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: isCoexistence
+      message: isCoexistenceSession
         ? "WhatsApp Business Account connected with Coexistence enabled (WhatsApp Business App + Cloud API)."
         : "WhatsApp Business Account connected successfully via Embedded Signup.",
       configured: true,
-      isCoexistence,
-      onboardingEvent: detectedEvent || "FINISH",
+      isCoexistence: isCoexistenceSession,
+      onboardingEvent: sessionEvent || "FINISH",
       wabaId: resolvedWabaId,
       phoneNumberId: resolvedPhoneId,
       businessName: businessName || targetOrg.name,
