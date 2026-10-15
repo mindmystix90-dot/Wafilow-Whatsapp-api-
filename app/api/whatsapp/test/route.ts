@@ -1,9 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizePhoneNumber, sendWhatsAppMessage, getWhatsAppConfig } from "@/lib/whatsapp";
 import { prisma } from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    let orgId = session?.user?.organizationId;
+
+    if (!session || !userId) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized. Please sign in to send test messages." },
+        { status: 401 }
+      );
+    }
+
+    if (!orgId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { organizationId: true },
+      });
+      orgId = user?.organizationId || null;
+    }
+
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: "No WhatsApp Business account connected to your workspace." },
+        { status: 400 }
+      );
+    }
+
     const body = await req.json().catch(() => ({}));
     const { to, messageType = "template", text } = body;
 
@@ -22,13 +50,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const config = await getWhatsAppConfig();
+    const config = await getWhatsAppConfig(orgId);
     if (!config.isConfigured) {
       return NextResponse.json(
         {
           success: false,
           error:
-            "Meta WhatsApp Cloud API is not configured on this server. Please provide META_PHONE_NUMBER_ID and META_ACCESS_TOKEN in server environment or API Settings.",
+            "WhatsApp Business Cloud API is not connected for your workspace. Please connect via Embedded Signup in Settings.",
           configured: false,
         },
         { status: 400 }
@@ -44,7 +72,7 @@ export async function POST(req: NextRequest) {
         name: "hello_world",
         language: { code: "en_US" },
       },
-      organizationId: config.organizationId,
+      organizationId: orgId,
     });
 
     if (!sendResult.success) {

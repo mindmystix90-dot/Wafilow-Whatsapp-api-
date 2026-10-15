@@ -51,38 +51,25 @@ export async function POST(req: NextRequest) {
         throw new Error("EMAIL_EXISTS");
       }
 
-      // Organization setup:
-      // If an initial unowned organization exists (0 users), the first user claims it.
-      // Otherwise, create a new separate Organization to guarantee tenant isolation.
-      const orphanOrg = await tx.organization.findFirst({
-        where: {
-          users: { none: {} },
+      // Guaranteed Multi-Tenant Isolation:
+      // Always create a dedicated, independent Organization for every newly registered customer.
+      // Newly created organizations start in an unconfigured state with no WhatsApp credentials,
+      // ensuring zero data leakage or connection inheritance.
+      const cleanOrgName =
+        (typeof organizationName === "string" && organizationName.trim()) ||
+        `${name?.trim() || normalizedEmail.split("@")[0]}'s Workspace`;
+
+      const newOrg = await tx.organization.create({
+        data: {
+          name: cleanOrgName,
+          webhookVerifyToken: `wafilow_${Math.random().toString(36).substring(2, 12)}_${Date.now().toString(36)}`,
+          accessToken: null,
+          phoneNumberId: null,
+          wabaId: null,
+          displayPhoneNumber: null,
         },
       });
-
-      let targetOrgId: string;
-
-      if (orphanOrg) {
-        if (organizationName && typeof organizationName === "string" && organizationName.trim()) {
-          await tx.organization.update({
-            where: { id: orphanOrg.id },
-            data: { name: organizationName.trim() },
-          });
-        }
-        targetOrgId = orphanOrg.id;
-      } else {
-        const cleanOrgName =
-          (typeof organizationName === "string" && organizationName.trim()) ||
-          `${name?.trim() || normalizedEmail.split("@")[0]}'s Organization`;
-
-        const newOrg = await tx.organization.create({
-          data: {
-            name: cleanOrgName,
-            webhookVerifyToken: `wafilow_${Math.random().toString(36).substring(2, 12)}`,
-          },
-        });
-        targetOrgId = newOrg.id;
-      }
+      const targetOrgId = newOrg.id;
 
       // Create user in PostgreSQL
       return await tx.user.create({

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getServerWhatsAppEnv } from "@/lib/env";
+import { encryptToken } from "@/lib/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -17,9 +18,8 @@ class ConflictError extends Error {
  * POST /api/whatsapp/embedded-signup
  *
  * Secure server-side endpoint for Meta WhatsApp Embedded Signup (v4).
- * - Exchanges temporary authorization code with Meta Graph API using server-side credentials.
- * - Resolves WABA ID and Phone Number ID from session and Meta Graph API.
- * - Subscribes WABA to webhook events.
+ * - Requires authenticated session and isolates credentials strictly to user's organization.
+ * - Encrypts access token at rest.
  * - Idempotently persists WhatsAppBusinessAccount and WhatsAppPhoneNumber records.
  * - Enforces strict tenant isolation (returns 409 Conflict if WABA or phone belongs to another tenant).
  * - NEVER leaks access tokens, secrets, or authorization codes to browser or server logs.
@@ -28,48 +28,48 @@ export async function POST(req: NextRequest) {
   try {
     // 1. Validate authenticated Wafilow session before provisioning
     const session = await getServerSession(authOptions);
-    const userOrgId = session?.user?.organizationId;
     const userId = session?.user?.id;
+    const userOrgId = session?.user?.organizationId;
+
+    if (!session || !userId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Authentication required. You must be signed in to connect WhatsApp Business via Embedded Signup.",
+        },
+        { status: 401 }
+      );
+    }
 
     let targetOrg = null;
 
-    if (session && userOrgId) {
+    if (userOrgId) {
       targetOrg = await prisma.organization.findUnique({
         where: { id: userOrgId },
       });
-    } else if (session && userId) {
+    }
+
+    if (!targetOrg) {
       const user = await prisma.user.findUnique({
         where: { id: userId },
         include: { organization: true },
       });
-      targetOrg = user?.organization || null;
-    }
 
-    // Check authentication requirement: if system has users, session is mandatory
-    if (!session || !session.user) {
-      const userCount = await prisma.user.count();
-      if (userCount > 0) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Authentication required. You must be signed in to connect WhatsApp Business via Embedded Signup.",
+      if (user?.organization) {
+        targetOrg = user.organization;
+      } else {
+        // Create an organization if the user doesn't have one
+        targetOrg = await prisma.organization.create({
+          data: {
+            name: `${user?.name || "Customer"}'s Workspace`,
+            webhookVerifyToken: `wafilow_${Math.random().toString(36).substring(2, 12)}`,
           },
-          { status: 401 }
-        );
+        });
+        await prisma.user.update({
+          where: { id: userId },
+          data: { organizationId: targetOrg.id },
+        });
       }
-    }
-
-    if (!targetOrg) {
-      targetOrg = await prisma.organization.findFirst();
-    }
-
-    if (!targetOrg) {
-      targetOrg = await prisma.organization.create({
-        data: {
-          name: "Primary WhatsApp Organization",
-          webhookVerifyToken: process.env.META_VERIFY_TOKEN || "wafilow_webhook_token_secure_9921",
-        },
-      });
     }
 
     // 2. Parse request payload
@@ -378,13 +378,13 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Update Organization
+      // Update Organization with encrypted credentials
       await tx.organization.update({
         where: { id: targetOrg.id },
         data: {
           wabaId: resolvedWabaId,
           phoneNumberId: resolvedPhoneId,
-          accessToken: accessToken,
+          accessToken: encryptToken(accessToken),
           displayPhoneNumber: displayPhone || undefined,
         },
       });

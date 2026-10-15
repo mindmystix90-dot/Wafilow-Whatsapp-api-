@@ -13,7 +13,20 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    const orgId = session?.user?.organizationId;
+    const userId = session?.user?.id;
+    let orgId = session?.user?.organizationId;
+
+    if (!session || !userId) {
+      return NextResponse.json({ success: false, error: "Unauthorized", messages: [] }, { status: 401 });
+    }
+
+    if (!orgId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { organizationId: true },
+      });
+      orgId = user?.organizationId || null;
+    }
 
     const { searchParams } = new URL(req.url);
     const contactId = searchParams.get("contactId");
@@ -25,18 +38,27 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (orgId) {
-      const contact = await prisma.contact.findUnique({ where: { id: contactId } });
-      if (contact && contact.organizationId && contact.organizationId !== orgId) {
-        return NextResponse.json(
-          { success: false, error: "Access denied to contact in another workspace", messages: [] },
-          { status: 403 }
-        );
-      }
+    // Verify contact ownership
+    const contact = await prisma.contact.findUnique({ where: { id: contactId } });
+    if (!contact) {
+      return NextResponse.json(
+        { success: false, error: "Contact not found", messages: [] },
+        { status: 404 }
+      );
+    }
+
+    if (orgId && contact.organizationId && contact.organizationId !== orgId) {
+      return NextResponse.json(
+        { success: false, error: "Access denied to contact in another workspace", messages: [] },
+        { status: 403 }
+      );
     }
 
     const messages = await prisma.message.findMany({
-      where: { contactId },
+      where: {
+        contactId,
+        ...(orgId ? { organizationId: orgId } : {}),
+      },
       orderBy: { timestamp: "asc" },
     });
 
@@ -77,7 +99,27 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    const sessionOrgId = session?.user?.organizationId;
+    const userId = session?.user?.id;
+    let sessionOrgId = session?.user?.organizationId;
+
+    if (!session || !userId) {
+      return NextResponse.json({ success: false, error: "Unauthorized. Please sign in to send messages." }, { status: 401 });
+    }
+
+    if (!sessionOrgId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { organizationId: true },
+      });
+      sessionOrgId = user?.organizationId || null;
+    }
+
+    if (!sessionOrgId) {
+      return NextResponse.json(
+        { success: false, error: "No organization workspace associated with your account." },
+        { status: 400 }
+      );
+    }
 
     const body = await req.json().catch(() => ({}));
     const { contactId, text, to } = body;
@@ -106,14 +148,14 @@ export async function POST(req: NextRequest) {
       contact = await prisma.contact.upsert({
         where: { phoneNumber: norm.digits },
         update: {
-          organizationId: sessionOrgId || undefined,
+          organizationId: sessionOrgId,
         },
         create: {
           name: norm.formatted,
           phoneNumber: norm.digits,
           waId: norm.digits,
           status: "active",
-          organizationId: sessionOrgId || null,
+          organizationId: sessionOrgId,
         },
       });
     }
@@ -125,21 +167,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (sessionOrgId && contact.organizationId && contact.organizationId !== sessionOrgId) {
+    if (contact.organizationId && contact.organizationId !== sessionOrgId) {
       return NextResponse.json(
         { success: false, error: "Access denied to contact in another workspace" },
         { status: 403 }
       );
     }
 
-    const config = await getWhatsAppConfig(contact.organizationId || undefined);
+    const config = await getWhatsAppConfig(sessionOrgId);
 
     if (!config.isConfigured) {
       return NextResponse.json(
         {
           success: false,
           error:
-            "Meta WhatsApp Cloud API is not configured. Please supply META_PHONE_NUMBER_ID and META_ACCESS_TOKEN in server environment or Settings.",
+            "Your WhatsApp Business account is not connected yet. Please connect via Embedded Signup or configure credentials in Settings.",
         },
         { status: 400 }
       );

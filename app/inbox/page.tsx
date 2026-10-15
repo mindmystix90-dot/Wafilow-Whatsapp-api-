@@ -15,7 +15,6 @@ import {
   RefreshCw,
   ArrowLeft,
 } from "lucide-react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 interface Conversation {
@@ -279,21 +278,32 @@ function InboxContent() {
     }
   };
 
-  const filteredConversations = conversations.filter(
-    (c) =>
+  // Filter tab state matching image.png
+  const [activeTab, setActiveTab] = useState<"all" | "unread" | "assigned" | "starred" | "archived">("all");
+  const [showContactInfo, setShowContactInfo] = useState(true);
+  const [assignedAgent, setAssignedAgent] = useState("Orion Edmund");
+  const [contactNotes, setContactNotes] = useState("Interested in Pro plan. Follow up next week.");
+
+  const filteredConversations = conversations.filter((c) => {
+    const matchesSearch =
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.phone.includes(searchQuery)
-  );
+      c.phone.includes(searchQuery);
+
+    if (activeTab === "unread") return matchesSearch && c.unread > 0;
+    if (activeTab === "starred") return matchesSearch && c.tags?.includes("Starred");
+    if (activeTab === "archived") return matchesSearch && c.tags?.includes("Archived");
+    return matchesSearch;
+  });
 
   return (
     <AppLayout
-      title="Live WhatsApp Inbox"
-      subtitle="Real-time two-way customer messaging connected directly to Meta Cloud API v24.0"
+      title="Live Inbox"
+      subtitle="Manage and respond to your WhatsApp conversations in real time"
       action={
         <div className="flex items-center gap-2">
           <button
             onClick={() => fetchConversations(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1220] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold transition-all shadow-sm cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1220] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold transition-all shadow-xs cursor-pointer"
             title="Refresh conversations"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -301,7 +311,7 @@ function InboxContent() {
           </button>
           <button
             onClick={() => setShowNewChat(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-all shadow-sm cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-all shadow-xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>New Chat</span>
@@ -309,32 +319,79 @@ function InboxContent() {
         </div>
       }
     >
-      <div className="h-[calc(100vh-210px)] min-h-[550px] border border-slate-200/80 dark:border-slate-800/80 rounded-2xl bg-white dark:bg-[#0c1220] shadow-sm overflow-hidden flex flex-col md:flex-row">
+      <div className="h-[calc(100vh-210px)] min-h-[580px] border border-slate-200/80 dark:border-slate-800/80 rounded-2xl bg-white dark:bg-[#0c1220] shadow-sm overflow-hidden flex flex-col md:flex-row">
         {/* Left Pane: Conversation List */}
         <div
           className={`w-full md:w-80 lg:w-96 border-r border-slate-200/80 dark:border-slate-800/80 flex flex-col h-full bg-slate-50/50 dark:bg-slate-900/40 ${
             selectedId ? "hidden md:flex" : "flex"
           }`}
         >
-          {/* Search bar & quick actions */}
-          <div className="p-3 border-b border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0c1220] flex items-center gap-2">
-            <div className="relative flex-1">
+          {/* Filter Pills matching image.png */}
+          <div className="p-3 border-b border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0c1220] space-y-2">
+            <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none text-xs">
+              <button
+                onClick={() => setActiveTab("all")}
+                className={`px-3 py-1 rounded-full font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                  activeTab === "all"
+                    ? "bg-indigo-600 text-white shadow-xs"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                }`}
+              >
+                All ({conversations.length})
+              </button>
+              <button
+                onClick={() => setActiveTab("unread")}
+                className={`px-3 py-1 rounded-full font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                  activeTab === "unread"
+                    ? "bg-indigo-600 text-white shadow-xs"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                }`}
+              >
+                Unread ({conversations.filter((c) => c.unread > 0).length})
+              </button>
+              <button
+                onClick={() => setActiveTab("assigned")}
+                className={`px-3 py-1 rounded-full font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                  activeTab === "assigned"
+                    ? "bg-indigo-600 text-white shadow-xs"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                }`}
+              >
+                Assigned
+              </button>
+              <button
+                onClick={() => setActiveTab("starred")}
+                className={`px-3 py-1 rounded-full font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                  activeTab === "starred"
+                    ? "bg-indigo-600 text-white shadow-xs"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                }`}
+              >
+                Starred
+              </button>
+              <button
+                onClick={() => setActiveTab("archived")}
+                className={`px-3 py-1 rounded-full font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                  activeTab === "archived"
+                    ? "bg-indigo-600 text-white shadow-xs"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                }`}
+              >
+                Archived
+              </button>
+            </div>
+
+            {/* Search Box */}
+            <div className="relative">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search chats or phone numbers..."
+                placeholder="Search conversations..."
                 className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
             </div>
-            <button
-              onClick={() => setShowNewChat(true)}
-              title="Start New Chat"
-              className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
           </div>
 
           {/* Conversation items */}
@@ -342,7 +399,7 @@ function InboxContent() {
             {isLoadingConversations ? (
               <div className="p-8 text-center text-slate-400 flex flex-col items-center justify-center h-full">
                 <Loader2 className="w-6 h-6 animate-spin text-indigo-600 mb-2" />
-                <span className="text-xs">Loading customer conversations...</span>
+                <span className="text-xs">Loading conversations...</span>
               </div>
             ) : filteredConversations.length === 0 ? (
               <div className="p-6 text-center text-slate-500 dark:text-slate-400 flex flex-col items-center justify-center h-full space-y-3">
@@ -350,24 +407,18 @@ function InboxContent() {
                   <MessageSquare className="w-6 h-6" />
                 </div>
                 <div className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                  No Active Conversations
+                  No Conversations Found
                 </div>
                 <p className="text-xs text-slate-400 max-w-[220px] leading-relaxed">
-                  Incoming WhatsApp messages from your webhook or outbound HSM test pings will appear here.
+                  Incoming WhatsApp messages or outbound template pings will appear here.
                 </p>
                 <div className="pt-2 flex flex-col gap-2 w-full max-w-[200px]">
                   <button
                     onClick={() => setShowNewChat(true)}
-                    className="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-all"
+                    className="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer"
                   >
                     Start New Chat
                   </button>
-                  <Link
-                    href="/settings"
-                    className="w-full py-1.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium text-center transition-all"
-                  >
-                    Send Test Ping
-                  </Link>
                 </div>
               </div>
             ) : (
@@ -379,38 +430,47 @@ function InboxContent() {
                     onClick={() => setSelectedId(c.id)}
                     className={`w-full text-left p-3.5 flex items-start gap-3 transition-all cursor-pointer ${
                       isSelected
-                        ? "bg-indigo-50/80 dark:bg-indigo-950/40 text-slate-900 dark:text-white"
+                        ? "bg-indigo-50/80 dark:bg-indigo-950/40 text-slate-900 dark:text-white border-l-4 border-indigo-600"
                         : "hover:bg-slate-100/70 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-300"
                     }`}
                   >
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-slate-900 to-indigo-600 text-white font-bold flex items-center justify-center shrink-0 text-xs shadow-sm">
-                      {c.name ? c.name[0]?.toUpperCase() : "W"}
+                    <div className="relative">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-slate-900 via-indigo-900 to-indigo-600 text-white font-bold flex items-center justify-center shrink-0 text-xs shadow-xs">
+                        {c.name ? c.name[0]?.toUpperCase() : "W"}
+                      </div>
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900 absolute bottom-0 right-0" />
                     </div>
+
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-xs sm:text-sm truncate">
+                        <span className="font-bold text-xs sm:text-sm truncate text-slate-900 dark:text-white">
                           {c.name}
                         </span>
                         <span className="text-[10px] text-slate-400 shrink-0 font-medium">{c.time}</span>
                       </div>
                       <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5 flex items-center gap-1">
                         {c.lastMessageDirection === "outbound" && (
-                          <span className="text-[10px] text-slate-400 font-semibold">You:</span>
+                          <span className="text-[10px] text-indigo-500 font-semibold">You:</span>
                         )}
                         <span className="truncate">{c.lastMessage}</span>
                       </div>
-                      {c.tags && c.tags.length > 0 && (
-                        <div className="flex items-center gap-1.5 mt-1.5">
-                          {c.tags.slice(0, 2).map((t, idx) => (
+                      <div className="flex items-center justify-between mt-1.5">
+                        <div className="flex items-center gap-1">
+                          {c.tags && c.tags.slice(0, 2).map((t, idx) => (
                             <span
                               key={idx}
-                              className="text-[10px] text-slate-400"
+                              className="text-[9px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
                             >
-                              #{t}
+                              {t}
                             </span>
                           ))}
                         </div>
-                      )}
+                        {c.unread > 0 && (
+                          <span className="w-4 h-4 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">
+                            {c.unread}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </button>
                 );
@@ -419,7 +479,7 @@ function InboxContent() {
           </div>
         </div>
 
-        {/* Right Pane: Active Chat Conversation */}
+        {/* Center Pane: Active Chat Conversation */}
         <div
           className={`flex-1 flex flex-col h-full bg-white dark:bg-[#0c1220] ${
             !selectedId ? "hidden md:flex" : "flex"
@@ -427,8 +487,8 @@ function InboxContent() {
         >
           {activeConv ? (
             <>
-              {/* Active Conversation Header */}
-              <div className="p-3.5 sm:p-4 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-[#0c1220]/95 backdrop-blur-sm flex items-center justify-between">
+              {/* Active Conversation Header matching image.png */}
+              <div className="p-3.5 sm:p-4 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-[#0c1220]/95 backdrop-blur-xs flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   {/* Mobile Back Button */}
                   <button
@@ -438,8 +498,11 @@ function InboxContent() {
                     <ArrowLeft className="w-5 h-5" />
                   </button>
 
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-slate-900 to-indigo-600 text-white font-bold flex items-center justify-center text-xs shadow-sm">
-                    {activeConv.name ? activeConv.name[0]?.toUpperCase() : "W"}
+                  <div className="relative">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-slate-900 to-indigo-600 text-white font-bold flex items-center justify-center text-xs shadow-xs">
+                      {activeConv.name ? activeConv.name[0]?.toUpperCase() : "W"}
+                    </div>
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900 absolute bottom-0 right-0" />
                   </div>
 
                   <div>
@@ -447,25 +510,33 @@ function InboxContent() {
                       <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
                         {activeConv.name}
                       </span>
-                      <span className="text-[11px] font-mono text-slate-400">
-                        {activeConv.phone}
-                      </span>
                     </div>
-                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      <span>WhatsApp Cloud API Active</span>
-                    </div>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {activeConv.phone}
+                    </span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <a
                     href={`tel:${activeConv.rawPhone}`}
                     className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                    title="Direct Dial"
+                    title="Direct Call"
                   >
                     <Phone className="w-4 h-4" />
                   </a>
+                  <button
+                    onClick={() => setShowContactInfo(!showContactInfo)}
+                    className={`p-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                      showContactInfo
+                        ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400"
+                        : "text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    }`}
+                    title="Toggle Contact Info Sidebar"
+                  >
+                    <span className="hidden sm:inline">Contact Info</span>
+                    <span className="sm:hidden">Info</span>
+                  </button>
                 </div>
               </div>
 
@@ -543,23 +614,25 @@ function InboxContent() {
                 )}
 
                 <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    placeholder="Type a WhatsApp message..."
-                    disabled={isSending}
-                    className="flex-1 px-4 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
+                  <div className="flex-1 relative">
+                    <input
+                      type="text"
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                      placeholder="Type a message..."
+                      disabled={isSending}
+                      className="w-full pl-4 pr-10 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
                   <button
                     type="submit"
                     disabled={!inputText.trim() || isSending}
-                    className="p-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold shadow-sm transition-all flex items-center justify-center cursor-pointer shrink-0"
+                    className="w-10 h-10 rounded-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold shadow-xs transition-all flex items-center justify-center cursor-pointer shrink-0"
                   >
                     {isSending ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
-                      <Send className="w-4 h-4" />
+                      <Send className="w-4 h-4 ml-0.5" />
                     )}
                   </button>
                 </form>
@@ -580,6 +653,107 @@ function InboxContent() {
             </div>
           )}
         </div>
+
+        {/* Right Pane: Contact Info Sidebar matching image.png */}
+        {activeConv && showContactInfo && (
+          <div className="hidden xl:flex w-72 lg:w-80 border-l border-slate-200/80 dark:border-slate-800/80 flex-col h-full bg-slate-50/50 dark:bg-slate-900/40 p-5 overflow-y-auto space-y-5 shrink-0">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-800/80">
+              <span className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                Contact Info
+              </span>
+              <button
+                onClick={() => setShowContactInfo(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                title="Close Sidebar"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Profile Avatar & Details */}
+            <div className="flex flex-col items-center text-center space-y-2">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-slate-900 via-indigo-900 to-indigo-600 text-white font-extrabold text-xl flex items-center justify-center shadow-md">
+                {activeConv.name ? activeConv.name[0]?.toUpperCase() : "W"}
+              </div>
+              <div>
+                <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                  {activeConv.name}
+                </h4>
+                <p className="text-xs font-mono text-slate-500 dark:text-slate-400">
+                  {activeConv.phone}
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Action Icons matching image.png */}
+            <div className="flex items-center justify-center gap-3 py-1">
+              <button
+                type="button"
+                className="w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-700 shadow-xs cursor-pointer"
+                title="Message"
+              >
+                <MessageSquare className="w-4 h-4 text-emerald-600" />
+              </button>
+              <a
+                href={`tel:${activeConv.rawPhone}`}
+                className="w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-700 shadow-xs cursor-pointer"
+                title="Call"
+              >
+                <Phone className="w-4 h-4 text-blue-600" />
+              </a>
+            </div>
+
+            {/* Tags matching image.png */}
+            <div className="space-y-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Tags
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                  New Lead
+                </span>
+                <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                  Pricing Inquiry
+                </span>
+                <button
+                  type="button"
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 border border-dashed border-slate-300 dark:border-slate-700 cursor-pointer"
+                >
+                  + Add Tag
+                </button>
+              </div>
+            </div>
+
+            {/* Notes Section matching image.png */}
+            <div className="space-y-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Notes
+              </span>
+              <textarea
+                value={contactNotes}
+                onChange={(e) => setContactNotes(e.target.value)}
+                rows={3}
+                className="w-full p-2.5 rounded-xl bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
+              />
+            </div>
+
+            {/* Assigned To matching image.png */}
+            <div className="space-y-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Assigned To
+              </span>
+              <select
+                value={assignedAgent}
+                onChange={(e) => setAssignedAgent(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value="Orion Edmund">Orion Edmund</option>
+                <option value="Support Team">Support Team</option>
+                <option value="Sales Agent">Sales Agent</option>
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* New Chat Modal */}

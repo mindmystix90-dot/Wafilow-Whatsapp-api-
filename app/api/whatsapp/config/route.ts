@@ -3,18 +3,30 @@ import { getWhatsAppConfig } from "@/lib/whatsapp";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { encryptToken } from "@/lib/crypto";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/whatsapp/config
- * Returns current configuration status without exposing access tokens or secrets.
+ * Returns current configuration status strictly for the authenticated customer's organization.
+ * Never exposes access tokens or secrets.
+ * Unconnected accounts return configured: false and null details.
  */
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    const orgId = session?.user?.organizationId;
-    const config = await getWhatsAppConfig(orgId || undefined);
+    const userId = session?.user?.id;
+    let orgId = session?.user?.organizationId;
+
+    // If orgId is not on session, look up from user record in database
+    if (userId && !orgId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { organizationId: true },
+      });
+      orgId = user?.organizationId || null;
+    }
 
     const hostHeader = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3000";
     const host = hostHeader.endsWith(".vercel.app") ? "wafilow-whatsapp-api.vercel.app" : hostHeader;
@@ -23,32 +35,34 @@ export async function GET(req: NextRequest) {
       ? `${proto}://${host}/api/webhook`
       : "https://wafilow-whatsapp-api.vercel.app/api/webhook";
 
-    let org = null;
-    if (orgId) {
-      org = await prisma.organization.findUnique({
-        where: { id: orgId },
-        include: {
-          wabaAccounts: {
-            include: { phoneNumbers: true },
-          },
-        },
-      });
-    } else {
-      org = await prisma.organization.findFirst({
-        where: {
-          OR: [
-            { accessToken: { not: null } },
-            { phoneNumberId: { not: null } },
-            { wabaId: { not: null } },
-          ],
-        },
-        include: {
-          wabaAccounts: {
-            include: { phoneNumbers: true },
-          },
-        },
+    // Unauthenticated or users without an organization get empty onboarding state
+    if (!orgId) {
+      return NextResponse.json({
+        success: true,
+        configured: false,
+        phoneNumberId: null,
+        wabaId: null,
+        verifyToken: null,
+        hasAccessToken: false,
+        appId: process.env.META_APP_ID || "3356483501181888",
+        configId: process.env.META_CONFIG_ID || "2934849833375100",
+        businessName: null,
+        displayPhoneNumber: null,
+        verifiedName: null,
+        webhookUrl,
       });
     }
+
+    const org = await prisma.organization.findUnique({
+      where: { id: orgId },
+      include: {
+        wabaAccounts: {
+          include: { phoneNumbers: true },
+        },
+      },
+    });
+
+    const config = await getWhatsAppConfig(orgId);
 
     const activeWaba =
       org?.wabaAccounts?.find((w) => w.wabaId === config.wabaId) || org?.wabaAccounts?.[0];
@@ -60,15 +74,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       configured: config.isConfigured,
-      phoneNumberId: config.phoneNumberId,
-      wabaId: config.wabaId,
-      verifyToken: config.webhookVerifyToken,
+      phoneNumberId: config.isConfigured ? config.phoneNumberId : null,
+      wabaId: config.isConfigured ? config.wabaId : null,
+      verifyToken: org?.webhookVerifyToken || config.webhookVerifyToken,
       hasAccessToken: Boolean(config.accessToken),
       appId: config.appId || process.env.META_APP_ID || "3356483501181888",
       configId: process.env.META_CONFIG_ID || "2934849833375100",
-      businessName: activeWaba?.name || org?.name || null,
-      displayPhoneNumber: activePhone?.displayPhone || org?.displayPhoneNumber || null,
-      verifiedName: activePhone?.verifiedName || null,
+      businessName: config.isConfigured ? activeWaba?.name || org?.name || null : null,
+      displayPhoneNumber: config.isConfigured ? activePhone?.displayPhone || org?.displayPhoneNumber || null : null,
+      verifiedName: config.isConfigured ? activePhone?.verifiedName || null : null,
       webhookUrl,
     });
   } catch (error: unknown) {
@@ -90,43 +104,68 @@ class ConflictError extends Error {
 
 /**
  * POST /api/whatsapp/config
- * Saves updated WhatsApp Cloud API credentials securely on the server.
- * Handles WABA and Phone Number records idempotently with strict tenant isolation.
+ * Saves updated WhatsApp Cloud API credentials strictly for the authenticated tenant.
+ * Encrypts sensitive access tokens at rest.
+ * Enforces strict authentication and rejects cross-tenant hijacking attempts.
  */
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    const userOrgId = session?.user?.organizationId;
+    const userId = session?.user?.id;
+    let userOrgId = session?.user?.organizationId;
+
+    if (!session || !userId) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized. You must be signed in to configure WhatsApp credentials." },
+        { status: 401 }
+      );
+    }
+
+    if (!userOrgId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { organization: true },
+      });
+      userOrgId = user?.organizationId || null;
+      if (!userOrgId) {
+        // Create an organization for the user if they don't have one
+        const createdOrg = await prisma.organization.create({
+          data: {
+            name: `${user?.name || "Customer"}'s Workspace`,
+            webhookVerifyToken: `wafilow_${Math.random().toString(36).substring(2, 12)}`,
+          },
+        });
+        await prisma.user.update({
+          where: { id: userId },
+          data: { organizationId: createdOrg.id },
+        });
+        userOrgId = createdOrg.id;
+      }
+    }
 
     const body = await req.json().catch(() => ({}));
     const { phoneNumberId, wabaId, accessToken, verifyToken, displayPhone, verifiedName } = body;
 
-    const requestedOrgId =
-      userOrgId ||
-      (body.organizationId && typeof body.organizationId === "string" ? body.organizationId.trim() : null);
-
-    let targetOrg = requestedOrgId
-      ? await prisma.organization.findUnique({ where: { id: requestedOrgId } })
-      : await prisma.organization.findFirst();
-
+    const targetOrg = await prisma.organization.findUnique({ where: { id: userOrgId } });
     if (!targetOrg) {
-      targetOrg = await prisma.organization.create({
-        data: {
-          name: "Primary WhatsApp Business",
-          webhookVerifyToken: verifyToken ? String(verifyToken).trim() : "wafilow_webhook_token_secure_9921",
-        },
-      });
+      return NextResponse.json(
+        { success: false, error: "Organization not found for authenticated user." },
+        { status: 404 }
+      );
     }
 
     const cleanWabaId = wabaId && String(wabaId).trim() ? String(wabaId).trim() : null;
     const cleanPhoneId = phoneNumberId && String(phoneNumberId).trim() ? String(phoneNumberId).trim() : null;
-    const cleanToken =
+    const rawToken =
       accessToken &&
       !accessToken.includes("[Meta Cloud API Token]") &&
       !accessToken.startsWith("••••") &&
       String(accessToken).trim()
         ? String(accessToken).trim()
         : undefined;
+
+    // Encrypt sensitive token at rest before writing to database
+    const cleanToken = rawToken ? encryptToken(rawToken) : undefined;
     const cleanVerifyToken = verifyToken && String(verifyToken).trim() ? String(verifyToken).trim() : undefined;
 
     await prisma.$transaction(async (tx) => {

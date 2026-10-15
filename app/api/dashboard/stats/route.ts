@@ -9,14 +9,80 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    const orgId = session?.user?.organizationId;
-    const config = await getWhatsAppConfig(orgId || undefined);
+    const userId = session?.user?.id;
+    let orgId = session?.user?.organizationId;
+
+    if (!session || !userId) {
+      return NextResponse.json({
+        success: true,
+        stats: {
+          totalMessages: 0,
+          totalOutbound: 0,
+          totalInbound: 0,
+          deliveredOutbound: 0,
+          readMessages: 0,
+          totalContacts: 0,
+          activeContacts: 0,
+          messagesSentToday: 0,
+          messagesDeliveredToday: 0,
+          openConversations: 0,
+          deliveryRate: 100,
+          readRate: 100,
+        },
+        recentInquiries: [],
+        metaConfig: {
+          isConfigured: false,
+          phoneNumberId: "Not configured",
+          wabaId: "Not configured",
+          hasAccessToken: false,
+          verifyToken: "",
+        },
+      });
+    }
+
+    if (!orgId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { organizationId: true },
+      });
+      orgId = user?.organizationId || null;
+    }
+
+    if (!orgId) {
+      return NextResponse.json({
+        success: true,
+        stats: {
+          totalMessages: 0,
+          totalOutbound: 0,
+          totalInbound: 0,
+          deliveredOutbound: 0,
+          readMessages: 0,
+          totalContacts: 0,
+          activeContacts: 0,
+          messagesSentToday: 0,
+          messagesDeliveredToday: 0,
+          openConversations: 0,
+          deliveryRate: 100,
+          readRate: 100,
+        },
+        recentInquiries: [],
+        metaConfig: {
+          isConfigured: false,
+          phoneNumberId: "Not configured",
+          wabaId: "Not configured",
+          hasAccessToken: false,
+          verifyToken: "",
+        },
+      });
+    }
+
+    const config = await getWhatsAppConfig(orgId);
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const msgOrgFilter = orgId ? { organizationId: orgId } : {};
-    const contactOrgFilter = orgId ? { organizationId: orgId } : {};
+    const msgOrgFilter = { organizationId: orgId };
+    const contactOrgFilter = { organizationId: orgId };
 
     // 1. Precise metrics from Prisma database
     const [

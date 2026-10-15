@@ -9,10 +9,27 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    const orgId = session?.user?.organizationId;
+    const userId = session?.user?.id;
+    let orgId = session?.user?.organizationId;
+
+    if (!session || !userId) {
+      return NextResponse.json({ success: true, contacts: [] });
+    }
+
+    if (!orgId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { organizationId: true },
+      });
+      orgId = user?.organizationId || null;
+    }
+
+    if (!orgId) {
+      return NextResponse.json({ success: true, contacts: [] });
+    }
 
     const contacts = await prisma.contact.findMany({
-      where: orgId ? { organizationId: orgId } : undefined,
+      where: { organizationId: orgId },
       orderBy: { updatedAt: "desc" },
     });
 
@@ -40,7 +57,24 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    const orgId = session?.user?.organizationId;
+    const userId = session?.user?.id;
+    let orgId = session?.user?.organizationId;
+
+    if (!session || !userId) {
+      return NextResponse.json({ success: false, error: "Unauthorized. Please sign in." }, { status: 401 });
+    }
+
+    if (!orgId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { organizationId: true },
+      });
+      orgId = user?.organizationId || null;
+    }
+
+    if (!orgId) {
+      return NextResponse.json({ success: false, error: "No organization workspace associated with your account." }, { status: 400 });
+    }
 
     const body = await req.json().catch(() => ({}));
     const { name, phone, tags } = body;
@@ -54,12 +88,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: norm.error }, { status: 400 });
     }
 
+    // Check if phone number already exists
+    const existing = await prisma.contact.findUnique({
+      where: { phoneNumber: norm.digits },
+    });
+
+    if (existing && existing.organizationId && existing.organizationId !== orgId) {
+      return NextResponse.json(
+        { success: false, error: "This phone number is already registered to another workspace." },
+        { status: 409 }
+      );
+    }
+
     const contact = await prisma.contact.upsert({
       where: { phoneNumber: norm.digits },
       update: {
         name: name?.trim() || undefined,
         tags: tags ? String(tags).trim() : undefined,
-        organizationId: orgId || undefined,
+        organizationId: orgId,
         status: "active",
         updatedAt: new Date(),
       },
@@ -69,7 +115,7 @@ export async function POST(req: NextRequest) {
         waId: norm.digits,
         tags: tags ? String(tags).trim() : "Direct Contact",
         status: "active",
-        organizationId: orgId || null,
+        organizationId: orgId,
       },
     });
 

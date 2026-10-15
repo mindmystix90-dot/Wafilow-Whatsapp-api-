@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getWhatsAppConfig, resolveOrganizationForWebhook } from "@/lib/whatsapp";
+import { resolveOrganizationForWebhook } from "@/lib/whatsapp";
 
 /**
  * Meta WhatsApp Webhook Verification (GET)
@@ -12,10 +12,20 @@ export async function GET(req: NextRequest) {
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
 
-  const config = await getWhatsAppConfig();
-  const expectedToken = config.webhookVerifyToken;
+  const envVerifyToken =
+    process.env.META_WEBHOOK_VERIFY_TOKEN ||
+    process.env.META_VERIFY_TOKEN ||
+    "wafilow_webhook_token_secure_9921";
 
-  if (mode === "subscribe" && token && token === expectedToken) {
+  let tokenValid = token === envVerifyToken;
+  if (!tokenValid && token) {
+    const org = await prisma.organization.findFirst({
+      where: { webhookVerifyToken: token },
+    });
+    if (org) tokenValid = true;
+  }
+
+  if (mode === "subscribe" && token && tokenValid) {
     console.log("[Meta Webhook] Successfully verified webhook subscription challenge.");
     return new NextResponse(challenge, {
       status: 200,
@@ -23,7 +33,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  console.warn("[Meta Webhook] Verification token mismatch. Received:", token, "Expected:", expectedToken);
+  console.warn("[Meta Webhook] Verification token mismatch. Received:", token);
   return new NextResponse("Forbidden", { status: 403 });
 }
 

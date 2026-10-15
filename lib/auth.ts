@@ -48,7 +48,7 @@ export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET || "wafilow-saas-production-session-secret-key",
   pages: {
     signIn: "/login",
   },
@@ -58,6 +58,19 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id;
         token.role = (user as { role?: string }).role;
         token.organizationId = (user as { organizationId?: string | null }).organizationId;
+      } else if (token.id && !token.organizationId) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: token.id as string },
+            select: { organizationId: true, role: true },
+          });
+          if (dbUser?.organizationId) {
+            token.organizationId = dbUser.organizationId;
+            if (dbUser.role) token.role = dbUser.role;
+          }
+        } catch {
+          // Graceful fallback
+        }
       }
       return token;
     },

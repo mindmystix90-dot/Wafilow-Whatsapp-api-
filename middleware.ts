@@ -9,7 +9,7 @@ const authMiddleware = withAuth({
   pages: {
     signIn: "/login",
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET || "wafilow-saas-production-session-secret-key",
 });
 
 const CANONICAL_HOST = "wafilow-whatsapp-api.vercel.app";
@@ -40,6 +40,8 @@ export const config = {
     "/campaigns/:path*",
     "/templates/:path*",
     "/automations/:path*",
+    "/integrations",
+    "/integrations/:path*",
     "/analytics/:path*",
     "/settings",
     "/settings/:path*",

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { decryptToken } from "@/lib/crypto";
 
 export interface WhatsAppConfig {
   accessToken: string;
@@ -41,66 +42,74 @@ export function normalizePhoneNumber(raw: string): { valid: boolean; digits: str
 }
 
 /**
- * Resolves Meta WhatsApp Cloud API credentials
- * Checks Database organization configuration first, then falls back to server-side environment variables.
- * Never leaks access tokens to client side.
+ * Resolves Meta WhatsApp Cloud API credentials strictly for the specified organization.
+ * Strictly isolates customer credentials: never leaks one tenant's credentials to another.
+ * Never leaks access tokens to client-side.
  */
 export async function getWhatsAppConfig(organizationId?: string): Promise<WhatsAppConfig> {
-  // Check for organization-specific config if organizationId provided or if one exists in DB
-  let org = null;
-  try {
-    if (organizationId) {
-      org = await prisma.organization.findUnique({ where: { id: organizationId } });
-    } else {
-      org = await prisma.organization.findFirst({
-        where: {
-          accessToken: { not: null },
-          phoneNumberId: { not: null },
-        },
-      });
-    }
-  } catch (err) {
-    console.warn("[WhatsApp Config] DB query error, falling back to env:", err);
-  }
-
-  const accessToken =
-    org?.accessToken ||
-    process.env.META_ACCESS_TOKEN ||
-    process.env.WHATSAPP_ACCESS_TOKEN ||
-    "";
-
-  const phoneNumberId =
-    org?.phoneNumberId ||
-    process.env.META_PHONE_NUMBER_ID ||
-    process.env.WHATSAPP_PHONE_NUMBER_ID ||
-    "";
-
-  const wabaId =
-    org?.wabaId ||
-    process.env.META_WABA_ID ||
-    process.env.WHATSAPP_BUSINESS_ACCOUNT_ID ||
-    "";
-
-  const webhookVerifyToken =
-    org?.webhookVerifyToken ||
-    process.env.META_WEBHOOK_VERIFY_TOKEN ||
-    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ||
-    "wafilow_webhook_token_secure_9921";
-
-  const appId = process.env.META_APP_ID || process.env.FACEBOOK_APP_ID || "";
+  const appId = process.env.META_APP_ID || process.env.FACEBOOK_APP_ID || "3356483501181888";
   const appSecret = process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET || "";
 
-  const isConfigured = Boolean(accessToken && phoneNumberId);
+  if (organizationId) {
+    let org = null;
+    try {
+      org = await prisma.organization.findUnique({
+        where: { id: organizationId },
+        include: {
+          wabaAccounts: {
+            include: { phoneNumbers: true },
+          },
+        },
+      });
+    } catch (err) {
+      console.warn("[WhatsApp Config] DB query error for org:", organizationId, err);
+    }
 
+    if (!org) {
+      return {
+        accessToken: "",
+        phoneNumberId: "",
+        wabaId: "",
+        webhookVerifyToken: "",
+        appId,
+        appSecret,
+        organizationId,
+        isConfigured: false,
+      };
+    }
+
+    // Decrypt access token if stored encrypted
+    const rawToken = org.accessToken || "";
+    const accessToken = decryptToken(rawToken);
+    const phoneNumberId = org.phoneNumberId || "";
+    const wabaId = org.wabaId || "";
+    const webhookVerifyToken =
+      org.webhookVerifyToken ||
+      process.env.META_WEBHOOK_VERIFY_TOKEN ||
+      "wafilow_webhook_token_secure_9921";
+    const isConfigured = Boolean(accessToken && phoneNumberId);
+
+    return {
+      accessToken,
+      phoneNumberId,
+      wabaId,
+      webhookVerifyToken,
+      appId,
+      appSecret,
+      organizationId: org.id,
+      isConfigured,
+    };
+  }
+
+  // When no organizationId is supplied (unauthenticated or unattached), do NOT expose any tenant's credentials.
   return {
-    accessToken,
-    phoneNumberId,
-    wabaId,
-    webhookVerifyToken,
+    accessToken: "",
+    phoneNumberId: "",
+    wabaId: "",
+    webhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN || "wafilow_webhook_token_secure_9921",
     appId,
     appSecret,
-    organizationId: org?.id,
-    isConfigured,
+    isConfigured: false,
   };
 }
 
@@ -117,50 +126,55 @@ export async function resolveOrganizationForWebhook(
   }
 
   try {
-    // 1. Check exact match in database by phoneNumberId or wabaId
-    const existingOrg = await prisma.organization.findFirst({
-      where: {
-        OR: [
-          phoneNumberId ? { phoneNumberId } : {},
-          wabaId ? { wabaId } : {},
-        ].filter((cond) => Object.keys(cond).length > 0),
-      },
-    });
+    // 1. Direct match on Organization
+    const conditions: Array<Record<string, unknown>> = [];
+    if (phoneNumberId) conditions.push({ phoneNumberId });
+    if (wabaId) conditions.push({ wabaId });
 
-    if (existingOrg) {
-      return { id: existingOrg.id, name: existingOrg.name };
+    if (conditions.length > 0) {
+      const existingOrg = await prisma.organization.findFirst({
+        where: { OR: conditions },
+      });
+      if (existingOrg) {
+        return { id: existingOrg.id, name: existingOrg.name };
+      }
     }
 
-    // 2. Check if it matches the configured environment variables
-    const envPhoneNumberId = process.env.META_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
-    const envWabaId = process.env.META_WABA_ID || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
-
-    const matchesEnv =
-      (phoneNumberId && envPhoneNumberId && phoneNumberId === envPhoneNumberId) ||
-      (wabaId && envWabaId && wabaId === envWabaId);
-
-    if (matchesEnv) {
-      // Upsert default organization for this verified environment credentials
-      const createdOrg = await prisma.organization.upsert({
-        where: { phoneNumberId: phoneNumberId || envPhoneNumberId || "default_phone" },
-        update: {
-          wabaId: wabaId || envWabaId,
-          phoneNumberId: phoneNumberId || envPhoneNumberId,
-        },
-        create: {
-          name: "Primary WhatsApp Business",
-          phoneNumberId: phoneNumberId || envPhoneNumberId,
-          wabaId: wabaId || envWabaId,
-          webhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN || "wafilow_webhook_token_secure_9921",
+    // 2. Check WABA account or phone number child records
+    if (phoneNumberId) {
+      const phoneRecord = await prisma.whatsAppPhoneNumber.findUnique({
+        where: { phoneNumberId },
+        include: {
+          wabaAccount: {
+            include: { organization: true },
+          },
         },
       });
-      return { id: createdOrg.id, name: createdOrg.name };
+      if (phoneRecord?.wabaAccount?.organization) {
+        return {
+          id: phoneRecord.wabaAccount.organization.id,
+          name: phoneRecord.wabaAccount.organization.name,
+        };
+      }
+    }
+
+    if (wabaId) {
+      const wabaRecord = await prisma.whatsAppBusinessAccount.findUnique({
+        where: { wabaId },
+        include: { organization: true },
+      });
+      if (wabaRecord?.organization) {
+        return {
+          id: wabaRecord.organization.id,
+          name: wabaRecord.organization.name,
+        };
+      }
     }
   } catch (err) {
     console.error("[WhatsApp] Error resolving organization for webhook:", err);
   }
 
-  // Not recognized — do NOT attach to arbitrary organization
+  // Not recognized — strictly return null to prevent cross-tenant data leakage
   return null;
 }
 

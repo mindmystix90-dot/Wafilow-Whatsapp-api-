@@ -8,11 +8,28 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    const orgId = session?.user?.organizationId;
+    const userId = session?.user?.id;
+    let orgId = session?.user?.organizationId;
 
-    // Fetch all contacts with their latest messages and unread counts for this organization
+    if (!session || !userId) {
+      return NextResponse.json({ success: true, conversations: [] });
+    }
+
+    if (!orgId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { organizationId: true },
+      });
+      orgId = user?.organizationId || null;
+    }
+
+    if (!orgId) {
+      return NextResponse.json({ success: true, conversations: [] });
+    }
+
+    // Fetch contacts strictly for this customer's organization
     const contacts = await prisma.contact.findMany({
-      where: orgId ? { organizationId: orgId } : undefined,
+      where: { organizationId: orgId },
       include: {
         messages: {
           orderBy: { timestamp: "desc" },

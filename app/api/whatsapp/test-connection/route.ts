@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 import { getWhatsAppConfig } from "@/lib/whatsapp";
 import { getServerWhatsAppEnv } from "@/lib/env";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET or POST /api/whatsapp/test-connection
- * Performs a REAL Meta Graph API request to test connectivity and credential validity.
- * Queries the phone number details from Meta Graph API.
- * Never hides the real Meta error behind generic messages.
+ * Tests connectivity strictly using the current authenticated customer's credentials.
+ * Rejects unauthenticated requests and accounts with no connection.
  */
 export async function POST() {
   return testMetaConnection();
@@ -20,30 +22,53 @@ export async function GET() {
 
 async function testMetaConnection() {
   try {
-    const config = await getWhatsAppConfig();
-    const env = getServerWhatsAppEnv();
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    let orgId = session?.user?.organizationId;
 
-    const phoneNumberId = config.phoneNumberId || env.phoneNumberId;
-    const accessToken = config.accessToken || env.accessToken;
-    const apiVersion = env.apiVersion || "v24.0";
-
-    if (!phoneNumberId) {
+    if (!session || !userId) {
       return NextResponse.json(
         {
           success: false,
-          error: "WHATSAPP_PHONE_NUMBER_ID is not configured. Please supply your Phone Number ID.",
-          code: "MISSING_PHONE_NUMBER_ID",
+          error: "Unauthorized. Please sign in to test your WhatsApp connection.",
+          code: "UNAUTHORIZED",
+        },
+        { status: 401 }
+      );
+    }
+
+    if (!orgId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { organizationId: true },
+      });
+      orgId = user?.organizationId || null;
+    }
+
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No WhatsApp Business account connected to your workspace yet.",
+          code: "NOT_CONFIGURED",
         },
         { status: 400 }
       );
     }
 
-    if (!accessToken) {
+    const config = await getWhatsAppConfig(orgId);
+    const env = getServerWhatsAppEnv();
+    const apiVersion = env.apiVersion || "v24.0";
+
+    const phoneNumberId = config.phoneNumberId;
+    const accessToken = config.accessToken;
+
+    if (!config.isConfigured || !phoneNumberId || !accessToken) {
       return NextResponse.json(
         {
           success: false,
-          error: "WHATSAPP_ACCESS_TOKEN is not configured. Please supply your Meta Permanent System User Token.",
-          code: "MISSING_ACCESS_TOKEN",
+          error: "Your WhatsApp Business account is not yet connected. Please connect via Embedded Signup or configure credentials in Settings.",
+          code: "NOT_CONFIGURED",
         },
         { status: 400 }
       );

@@ -17,6 +17,7 @@ import {
   Menu,
   X,
   ExternalLink,
+  Layers,
 } from "lucide-react";
 
 interface AppLayoutProps {
@@ -38,12 +39,13 @@ const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3, section: "core" },
   { href: "/inbox", label: "Live Inbox", icon: MessageSquare, section: "core" },
   { href: "/contacts", label: "Contacts", icon: Users, section: "core" },
-  { href: "/templates", label: "HSM Templates", icon: FileText, section: "core", badge: "Meta" },
-  { href: "/campaigns", label: "Broadcasts", icon: Megaphone, section: "engagement", badge: "Soon" },
-  { href: "/automations", label: "Automations", icon: Bot, section: "engagement", badge: "Soon" },
+  { href: "/templates", label: "Templates", icon: FileText, section: "core" },
+  { href: "/campaigns", label: "Broadcasts", icon: Megaphone, section: "engagement" },
+  { href: "/automations", label: "Automations", icon: Bot, section: "engagement" },
+  { href: "/integrations", label: "Integrations", icon: Layers, section: "engagement" },
   { href: "/analytics", label: "Analytics", icon: BarChart3, section: "engagement" },
-  { href: "/settings", label: "API Settings", icon: Settings, section: "system" },
-  { href: "/team", label: "Team", icon: UserCheck, section: "system", badge: "Soon" },
+  { href: "/team", label: "Team", icon: UserCheck, section: "system" },
+  { href: "/settings", label: "Settings", icon: Settings, section: "system" },
 ];
 
 export default function AppLayout({ children, title, subtitle, action }: AppLayoutProps) {
