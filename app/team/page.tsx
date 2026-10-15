@@ -22,7 +22,7 @@ export default function TeamPage() {
 
           <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-sm shadow-sm">
+              <div className="w-10 h-10 rounded-full bg-[#5938F5] text-white font-bold flex items-center justify-center text-sm shadow-sm">
                 W
               </div>
               <div>
@@ -61,7 +61,7 @@ export default function TeamPage() {
           <div className="mt-6 flex justify-center">
             <Link
               href="/inbox"
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium transition-colors"
+              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-[#5938F5] hover:bg-[#4d2ee0] text-white text-xs font-semibold transition-all shadow-sm"
             >
               <MessageSquare className="w-4 h-4" />
               Open Live Shared Inbox

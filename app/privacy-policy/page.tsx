@@ -237,7 +237,7 @@ export default function PrivacyPolicyPage() {
             <div className="pt-2">
               <Link
                 href="/data-deletion"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-semibold text-sm hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#5938F5]/10 border border-[#5938F5]/20 text-[#5938F5] dark:text-violet-400 font-semibold text-sm hover:bg-[#5938F5]/20 transition-colors"
               >
                 View Data Deletion Instructions & Policy
                 <ArrowRight className="w-4 h-4" />

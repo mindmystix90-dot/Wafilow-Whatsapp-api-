@@ -126,7 +126,7 @@ function StatusChecker() {
         <button
           type="submit"
           disabled={loading || !code.trim()}
-          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium text-sm transition-colors shrink-0 cursor-pointer shadow-sm"
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#5938F5] hover:bg-[#4d2ee0] disabled:opacity-50 text-white font-medium text-sm transition-colors shrink-0 cursor-pointer shadow-sm"
         >
           {loading ? (
             <>

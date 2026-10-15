@@ -2,7 +2,20 @@
 
 import { useState, useEffect } from "react";
 import AppLayout from "@/components/AppLayout";
-import { Key, Shield, Globe, Send, Check, Copy, AlertCircle, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
+import {
+  Shield,
+  Globe,
+  Send,
+  Check,
+  Copy,
+  AlertCircle,
+  Loader2,
+  CheckCircle2,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  Sliders,
+} from "lucide-react";
 import { launchWhatsAppSignup } from "@/lib/facebook-sdk";
 
 export default function SettingsPage() {
@@ -21,6 +34,9 @@ export default function SettingsPage() {
   const [verifiedName, setVerifiedName] = useState<string | null>(null);
   const [appId, setAppId] = useState("3356483501181888");
   const [configId, setConfigId] = useState("2934849833375100");
+
+  // Collapsible Advanced Section
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Embedded Signup state
   const [isLaunchingSignup, setIsLaunchingSignup] = useState(false);
@@ -53,9 +69,9 @@ export default function SettingsPage() {
 
   const webhookUrl =
     typeof window !== "undefined"
-      ? (window.location.hostname.endsWith(".vercel.app") && window.location.hostname !== "wafilow-whatsapp-api.vercel.app"
-          ? "https://wafilow-whatsapp-api.vercel.app/api/webhook"
-          : `${window.location.origin}/api/webhook`)
+      ? window.location.hostname.endsWith(".vercel.app") && window.location.hostname !== "wafilow-whatsapp-api.vercel.app"
+        ? "https://wafilow-whatsapp-api.vercel.app/api/webhook"
+        : `${window.location.origin}/api/webhook`
       : "https://wafilow-whatsapp-api.vercel.app/api/webhook";
 
   // Load existing configuration status on mount
@@ -103,90 +119,55 @@ export default function SettingsPage() {
         if (data.success) {
           setPhoneNumberId(data.phoneNumberId || "");
           setWabaId(data.wabaId || "");
-          setVerifyToken(data.verifyToken || "wafilow_webhook_token_secure_9921");
           setIsConfigured(data.configured || false);
           setHasServerToken(data.hasAccessToken || false);
-          if (data.appId) setAppId(data.appId);
-          if (data.configId) setConfigId(data.configId);
           if (data.businessName) setBusinessName(data.businessName);
           if (data.displayPhoneNumber) setDisplayPhone(data.displayPhoneNumber);
           if (data.verifiedName) setVerifiedName(data.verifiedName);
-          if (data.hasAccessToken) {
-            setAccessToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
-          }
         }
       }
-    } catch (err) {
-      console.warn("Could not reload WhatsApp config:", err);
+    } catch {
+      // Soft fail
     }
   };
 
   const handleLaunchEmbeddedSignup = async () => {
-    // If user somehow triggers flow on a Vercel preview deployment, redirect to canonical production domain
-    if (
-      typeof window !== "undefined" &&
-      window.location.hostname.endsWith(".vercel.app") &&
-      window.location.hostname !== "wafilow-whatsapp-api.vercel.app"
-    ) {
-      window.location.href = "https://wafilow-whatsapp-api.vercel.app/settings";
-      return;
-    }
-
     setIsLaunchingSignup(true);
     setSignupError(null);
     setSignupSuccess(null);
 
     try {
-      // 1. Launch real Meta Facebook JS SDK popup flow: launchWhatsAppSignup() -> FB.login()
       const signupResult = await launchWhatsAppSignup({
-        appId: appId || "3356483501181888",
-        configId: configId || "2934849833375100",
-        version: "v24.0",
+        appId,
+        configId,
       });
 
-      // 2. Send authorization code and session IDs to server
+      if (!signupResult?.code) {
+        throw new Error("No authorization code received from Meta Embedded Signup.");
+      }
+
       const res = await fetch("/api/whatsapp/embedded-signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code: signupResult.code,
-          wabaId: signupResult.wabaId,
-          phoneNumberId: signupResult.phoneNumberId,
-          sessionInfo: signupResult.sessionInfo,
-          event: signupResult.event,
-          isCoexistence: signupResult.isCoexistence,
-        }),
+        body: JSON.stringify(signupResult),
       });
 
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to complete Embedded Signup on the server.");
+        setSignupError(data.error || "Failed to persist WhatsApp connection.");
+      } else {
+        setSignupSuccess(data);
+        setIsConfigured(true);
+        if (data.wabaId) setWabaId(data.wabaId);
+        if (data.phoneNumberId) setPhoneNumberId(data.phoneNumberId);
+        if (data.businessName) setBusinessName(data.businessName);
+        if (data.displayPhone) setDisplayPhone(data.displayPhone);
+        if (data.verifiedName) setVerifiedName(data.verifiedName);
+        setHasServerToken(true);
+        setAccessToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
+        await refreshConfig();
       }
-
-      // 3. Update local state with real database data
-      setIsConfigured(true);
-      setHasServerToken(true);
-      setWabaId(data.wabaId || "");
-      setPhoneNumberId(data.phoneNumberId || "");
-      setBusinessName(data.businessName || null);
-      setDisplayPhone(data.displayPhoneNumber || null);
-      setVerifiedName(data.verifiedName || null);
-      setAccessToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
-
-      const isCoexistenceActive = Boolean(data.isCoexistence);
-
-      setSignupSuccess({
-        businessName: data.businessName,
-        wabaId: data.wabaId,
-        phoneNumberId: data.phoneNumberId,
-        displayPhone: data.displayPhoneNumber,
-        verifiedName: data.verifiedName,
-        isCoexistence: isCoexistenceActive,
-      });
-
-      // Reload config from server
-      await refreshConfig();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Embedded Signup failed.";
       setSignupError(msg);
@@ -215,7 +196,7 @@ export default function SettingsPage() {
       const data = await res.json();
       if (res.ok && data.success) {
         setIsConfigured(data.configured);
-        setSaveStatus({ type: "success", text: "Meta credentials saved successfully on the server." });
+        setSaveStatus({ type: "success", text: "Meta credentials saved securely on the server." });
         setTimeout(() => setSaveStatus(null), 4000);
       } else {
         setSaveStatus({ type: "error", text: data.error || "Failed to save configuration." });
@@ -293,57 +274,60 @@ export default function SettingsPage() {
   return (
     <AppLayout
       title="API & Meta WABA Settings"
-      subtitle="Configure WhatsApp Cloud API credentials, Webhooks, and Embedded Signup"
+      subtitle="Manage your Meta Cloud API connection, credentials, and webhook configurations."
     >
       <div className="space-y-6 max-w-4xl">
-        {/* Connection Status Banner */}
-        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+        {/* Connection Status Overview - Clean Neutral Card */}
+        <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#111827] shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
             <div
-              className={`w-3 h-3 rounded-full shrink-0 ${
-                isConfigured ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+              className={`w-3.5 h-3.5 rounded-full shrink-0 ${
+                isConfigured ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : "bg-amber-500"
               }`}
             />
             <div>
-              <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                Meta Cloud API Status
-              </h4>
-              <p className="text-xs text-slate-500">
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Meta WhatsApp Cloud API v24.0
+                </h4>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase ${
+                    isConfigured
+                      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
+                      : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
+                  }`}
+                >
+                  {isConfigured ? "Connected" : "Setup Required"}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {isConfigured
-                  ? "Connected and configured for WhatsApp Cloud API v24.0"
-                  : "Awaiting Meta Cloud API Phone Number ID and Permanent Access Token"}
+                  ? "Connected and active for automated messaging and real-time webhook events."
+                  : "Requires Meta Embedded Signup authorization or saved Cloud API credentials."}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={handleTestConnection}
               disabled={isTestingConnection || !isConfigured}
-              className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5"
+              className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 hover:bg-slate-50 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 text-xs font-semibold shadow-xs transition-all disabled:opacity-40 flex items-center gap-1.5 cursor-pointer"
             >
               {isTestingConnection ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#5938F5]" />
               ) : (
                 <RefreshCw className="w-3.5 h-3.5" />
               )}
               Test Connection
             </button>
-            <span
-              className={`px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${
-                isConfigured
-                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                  : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
-              }`}
-            >
-              {isConfigured ? "Active & Ready" : "Setup Required"}
-            </span>
           </div>
         </div>
 
-        {/* Real Connection Test Feedback Banners */}
+        {/* Real Connection Test Feedback Banners - Restrained States */}
         {connectionTestError && (
-          <div className="p-4 rounded-xl text-xs bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300 border border-red-200 dark:border-red-800 flex items-start gap-2.5">
+          <div className="p-4 rounded-xl text-xs bg-red-50/90 text-red-900 dark:bg-red-950/40 dark:text-red-300 border border-red-200 dark:border-red-900/60 flex items-start gap-2.5">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
             <div>
               <strong className="font-semibold block mb-0.5">Meta API Connection Error:</strong>
@@ -353,90 +337,94 @@ export default function SettingsPage() {
         )}
 
         {connectionTestResult && (
-          <div className="p-4 rounded-xl text-xs bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-start gap-2.5">
+          <div className="p-4 rounded-xl text-xs bg-emerald-50/90 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60 flex items-start gap-2.5">
             <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
             <div className="space-y-1">
               <strong className="font-semibold block">{connectionTestResult.message}</strong>
               {connectionTestResult.details && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono text-[11px]">
-                  <div>Verified Name: <span className="font-semibold">{connectionTestResult.details.verifiedName}</span></div>
-                  <div>Phone Number: <span className="font-semibold">{connectionTestResult.details.displayPhoneNumber}</span></div>
-                  <div>Quality Rating: <span className="font-semibold">{connectionTestResult.details.qualityRating}</span></div>
-                  <div>Status: <span className="font-semibold">{connectionTestResult.details.verificationStatus}</span></div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono text-[11px] text-emerald-800 dark:text-emerald-300">
+                  <div>Verified Name: <span className="font-semibold">{connectionTestResult.details.verifiedName || "N/A"}</span></div>
+                  <div>Phone Number: <span className="font-semibold">{connectionTestResult.details.displayPhoneNumber || "N/A"}</span></div>
+                  <div>Quality Rating: <span className="font-semibold">{connectionTestResult.details.qualityRating || "N/A"}</span></div>
+                  <div>Status: <span className="font-semibold">{connectionTestResult.details.verificationStatus || "N/A"}</span></div>
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* Meta Embedded Signup Banner */}
-        <div className="p-6 rounded-2xl bg-gradient-to-r from-emerald-900 to-slate-900 text-white border border-emerald-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                1-Click Meta Onboarding
-              </span>
-              {isConfigured && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  Meta WABA Linked
+        {/* 1. Primary WhatsApp Connection - Clean Neutral Card with Violet Brand CTA */}
+        <div className="p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#111827] shadow-sm">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
+            <div className="space-y-1.5 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#5938F5]/10 text-[#5938F5] border border-[#5938F5]/20">
+                  Recommended Onboarding
                 </span>
-              )}
-            </div>
-            <h3 className="text-lg font-bold">Connect WhatsApp via Embedded Signup</h3>
-            <p className="text-xs text-slate-300 max-w-lg">
-              Seamlessly link your Meta Business Manager, claim phone numbers, and authorize WhatsApp messaging permissions in seconds.
-            </p>
-
-            {/* Connected Account Database Summary */}
-            {isConfigured && (
-              <div className="pt-2 font-mono text-xs text-emerald-200/90 flex flex-wrap gap-x-4 gap-y-1">
-                {businessName && (
-                  <div>
-                    Business: <span className="text-white font-semibold">{businessName}</span>
-                  </div>
-                )}
-                {wabaId && (
-                  <div>
-                    WABA ID: <span className="text-white font-semibold">{wabaId}</span>
-                  </div>
-                )}
-                {(displayPhone || phoneNumberId) && (
-                  <div>
-                    Phone:{" "}
-                    <span className="text-white font-semibold">
-                      {displayPhone || phoneNumberId}
-                      {verifiedName ? ` (${verifiedName})` : ""}
-                    </span>
-                  </div>
+                {isConfigured && (
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">
+                    Linked to Meta
+                  </span>
                 )}
               </div>
-            )}
-          </div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                Meta Embedded Signup
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 max-w-xl leading-relaxed">
+                Connect your WhatsApp Business Account directly with Meta. Link existing business numbers, claim new phone numbers, and grant permissions securely in seconds.
+              </p>
 
-          <button
-            type="button"
-            id="connect-whatsapp-embedded-button"
-            onClick={handleLaunchEmbeddedSignup}
-            disabled={isLaunchingSignup}
-            className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm shadow-md transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer shrink-0"
-          >
-            {isLaunchingSignup ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Connecting with Meta...
-              </>
-            ) : (
-              <>
-                <Globe className="w-4 h-4" />
-                {isConfigured ? "Reconnect WhatsApp Business" : "Connect WhatsApp"}
-              </>
-            )}
-          </button>
+              {/* Connected Account Database Summary */}
+              {isConfigured && (
+                <div className="pt-3 font-mono text-xs text-slate-600 dark:text-slate-300 flex flex-wrap gap-x-5 gap-y-1.5">
+                  {businessName && (
+                    <div className="bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-700/60">
+                      Business: <span className="text-slate-900 dark:text-white font-semibold">{businessName}</span>
+                    </div>
+                  )}
+                  {wabaId && (
+                    <div className="bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-700/60">
+                      WABA ID: <span className="text-slate-900 dark:text-white font-semibold">{wabaId}</span>
+                    </div>
+                  )}
+                  {(displayPhone || phoneNumberId) && (
+                    <div className="bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-700/60">
+                      Phone:{" "}
+                      <span className="text-slate-900 dark:text-white font-semibold">
+                        {displayPhone || phoneNumberId}
+                        {verifiedName ? ` (${verifiedName})` : ""}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              id="connect-whatsapp-embedded-button"
+              onClick={handleLaunchEmbeddedSignup}
+              disabled={isLaunchingSignup}
+              className="px-5 py-2.5 rounded-xl bg-[#5938F5] hover:bg-[#4d2ee0] disabled:opacity-50 text-white font-semibold text-xs sm:text-sm shadow-sm transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer shrink-0"
+            >
+              {isLaunchingSignup ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Connecting with Meta...
+                </>
+              ) : (
+                <>
+                  <Globe className="w-4 h-4" />
+                  {isConfigured ? "Reconnect WhatsApp Business" : "Connect WhatsApp"}
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Embedded Signup Error Banner */}
         {signupError && (
-          <div className="p-4 rounded-xl text-xs bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300 border border-red-200 dark:border-red-800 flex items-start gap-2.5">
+          <div className="p-4 rounded-xl text-xs bg-red-50/90 text-red-900 dark:bg-red-950/40 dark:text-red-300 border border-red-200 dark:border-red-900/60 flex items-start gap-2.5">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
             <div>
               <strong className="font-semibold block mb-0.5">Embedded Signup Notice:</strong>
@@ -447,7 +435,7 @@ export default function SettingsPage() {
 
         {/* Embedded Signup Success Banner */}
         {signupSuccess && (
-          <div className="p-4 rounded-xl text-xs bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-start gap-2.5">
+          <div className="p-4 rounded-xl text-xs bg-emerald-50/90 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60 flex items-start gap-2.5">
             <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
             <div className="space-y-1">
               <div className="flex items-center gap-2">
@@ -491,110 +479,32 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Credentials Form */}
-        <form
-          onSubmit={handleSaveCredentials}
-          className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
-                <Key className="w-4 h-4 text-emerald-600" />
-                WhatsApp Cloud API Credentials
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Configured server-side. Stored securely and never leaked to client browsers.
-              </p>
-            </div>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-semibold shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5"
-            >
-              {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-              {isSaving ? "Saving..." : "Save Credentials"}
-            </button>
+        {/* 2. Webhook Configuration Section */}
+        <div className="p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#111827] shadow-sm">
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+              <Shield className="w-4 h-4 text-[#5938F5]" />
+              Meta Webhook Integration
+            </h3>
+            <span className="text-[11px] font-medium text-slate-400">
+              Receives messages & statuses
+            </span>
           </div>
-
-          {saveStatus && (
-            <div
-              className={`mb-4 p-3 rounded-xl text-xs flex items-center gap-2 ${
-                saveStatus.type === "success"
-                  ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
-                  : "bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300 border border-red-200 dark:border-red-800"
-              }`}
-            >
-              {saveStatus.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-              <span>{saveStatus.text}</span>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Phone Number ID (META_PHONE_NUMBER_ID)
-              </label>
-              <input
-                type="text"
-                value={phoneNumberId}
-                onChange={(e) => setPhoneNumberId(e.target.value)}
-                placeholder="e.g. 109847291039482"
-                className="w-full px-3 py-2 text-xs sm:text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                WhatsApp Business Account ID (META_WABA_ID)
-              </label>
-              <input
-                type="text"
-                value={wabaId}
-                onChange={(e) => setWabaId(e.target.value)}
-                placeholder="e.g. 782910384729102"
-                className="w-full px-3 py-2 text-xs sm:text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
-              />
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                System User Permanent Access Token (META_ACCESS_TOKEN)
-              </label>
-              <input
-                type="password"
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
-                placeholder={hasServerToken ? "•••••••••••••••••••••••••••••• (Configured)" : "EAAGm0PX4ZC..."}
-                className="w-full px-3 py-2 text-xs sm:text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
-              />
-              <p className="text-[11px] text-slate-500 mt-1">
-                Generated from Meta Business Manager &gt; System Users with <code className="font-mono">whatsapp_business_messaging</code> permissions.
-              </p>
-            </div>
-          </div>
-        </form>
-
-        {/* Webhook Configuration */}
-        <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-          <h3 className="font-bold text-base text-slate-900 dark:text-white mb-1 flex items-center gap-2">
-            <Shield className="w-4 h-4 text-blue-600" />
-            Meta Webhook Integration
-          </h3>
-          <p className="text-xs text-slate-500 mb-5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-5">
             Configure this Callback URL and Verify Token in Meta App Dashboard &gt; WhatsApp &gt; Configuration
           </p>
 
           <div className="space-y-4 text-xs">
             <div>
               <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Callback URL (Supports GET Challenge Verification & POST Events)
+                Callback URL (GET Challenge Verification & POST Events)
               </label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   readOnly
                   value={webhookUrl}
-                  className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-xs"
+                  className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white font-mono text-xs select-all focus:outline-none"
                 />
                 <button
                   type="button"
@@ -603,7 +513,7 @@ export default function SettingsPage() {
                     setCopiedWebhook(true);
                     setTimeout(() => setCopiedWebhook(false), 2000);
                   }}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1 font-medium"
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
                 >
                   {copiedWebhook ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                   {copiedWebhook ? "Copied" : "Copy"}
@@ -619,19 +529,19 @@ export default function SettingsPage() {
                 type="text"
                 value={verifyToken}
                 onChange={(e) => setVerifyToken(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-xs"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:ring-2 focus:ring-[#5938F5]/20 focus:border-[#5938F5]"
               />
             </div>
           </div>
         </div>
 
-        {/* Live Message Dispatch Tester */}
-        <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+        {/* 3. Live Message Dispatch Tester */}
+        <div className="p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#111827] shadow-sm">
           <h3 className="font-bold text-base text-slate-900 dark:text-white mb-1 flex items-center gap-2">
-            <Send className="w-4 h-4 text-violet-600" />
+            <Send className="w-4 h-4 text-[#5938F5]" />
             Send Test WhatsApp Notification
           </h3>
-          <p className="text-xs text-slate-500 mb-4">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
             Sends an immediate real WhatsApp test template (<code className="font-mono">hello_world</code>) through Meta Cloud API v24.0
           </p>
 
@@ -643,12 +553,12 @@ export default function SettingsPage() {
                 value={testNumber}
                 onChange={(e) => setTestNumber(e.target.value)}
                 placeholder="e.g. +14155550192 or 14155550192"
-                className="flex-1 px-3 py-2 text-xs sm:text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                className="flex-1 px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-2 focus:ring-[#5938F5]/20 focus:border-[#5938F5]"
               />
               <button
                 type="submit"
                 disabled={isSendingTest}
-                className="px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium text-xs sm:text-sm transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap"
+                className="px-5 py-2.5 rounded-xl bg-[#5938F5] hover:bg-[#4d2ee0] disabled:opacity-50 text-white font-semibold text-xs sm:text-sm shadow-sm transition-all flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
               >
                 {isSendingTest ? (
                   <>
@@ -664,9 +574,9 @@ export default function SettingsPage() {
 
             {/* Error Notification */}
             {testError && (
-              <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-900 text-red-900 dark:text-red-200 text-xs">
+              <div className="p-4 rounded-xl bg-red-50/90 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-900 dark:text-red-200 text-xs">
                 <div className="flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                  <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
                   <div>
                     <strong className="font-semibold block mb-0.5">Meta API Error:</strong>
                     <p className="leading-relaxed">{testError}</p>
@@ -677,9 +587,9 @@ export default function SettingsPage() {
 
             {/* Success Notification */}
             {testResult && (
-              <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900 text-emerald-900 dark:text-emerald-200 text-xs">
+              <div className="p-4 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-emerald-900 dark:text-emerald-200 text-xs">
                 <div className="flex items-start gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 mt-0.5 flex-shrink-0" />
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
                   <div>
                     <strong className="font-semibold block mb-0.5">Test Message Sent:</strong>
                     <p className="leading-relaxed">{testResult.text}</p>
@@ -693,6 +603,106 @@ export default function SettingsPage() {
               </div>
             )}
           </form>
+        </div>
+
+        {/* 4. Collapsible Advanced / Manual API Credentials Section */}
+        <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#111827] shadow-sm overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="w-full p-5 flex items-center justify-between text-left hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <Sliders className="w-4 h-4 text-[#5938F5]" />
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                  Advanced / Manual API Configuration
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Override Phone Number ID, WABA ID, or System User tokens manually
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+              <span>{showAdvanced ? "Hide" : "Show"}</span>
+              {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </div>
+          </button>
+
+          {showAdvanced && (
+            <form
+              onSubmit={handleSaveCredentials}
+              className="p-6 pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-4 animate-in fade-in duration-200"
+            >
+              {saveStatus && (
+                <div
+                  className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+                    saveStatus.type === "success"
+                      ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                      : "bg-red-50 text-red-800 dark:bg-red-950/50 dark:text-red-300 border border-red-200 dark:border-red-800"
+                  }`}
+                >
+                  {saveStatus.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                  <span>{saveStatus.text}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Phone Number ID (META_PHONE_NUMBER_ID)
+                  </label>
+                  <input
+                    type="text"
+                    value={phoneNumberId}
+                    onChange={(e) => setPhoneNumberId(e.target.value)}
+                    placeholder="e.g. 109847291039482"
+                    className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-2 focus:ring-[#5938F5]/20 focus:border-[#5938F5]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    WhatsApp Business Account ID (META_WABA_ID)
+                  </label>
+                  <input
+                    type="text"
+                    value={wabaId}
+                    onChange={(e) => setWabaId(e.target.value)}
+                    placeholder="e.g. 782910384729102"
+                    className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-2 focus:ring-[#5938F5]/20 focus:border-[#5938F5]"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    System User Permanent Access Token (META_ACCESS_TOKEN)
+                  </label>
+                  <input
+                    type="password"
+                    value={accessToken}
+                    onChange={(e) => setAccessToken(e.target.value)}
+                    placeholder={hasServerToken ? "•••••••••••••••••••••••••••••• (Stored Server-Side)" : "EAAGm0PX4ZC..."}
+                    className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-2 focus:ring-[#5938F5]/20 focus:border-[#5938F5]"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Generated from Meta Business Manager &gt; System Users with <code className="font-mono">whatsapp_business_messaging</code> permissions.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="px-5 py-2.5 rounded-xl bg-[#5938F5] hover:bg-[#4d2ee0] text-white text-xs font-semibold shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  {isSaving ? "Saving..." : "Save Credentials"}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
     </AppLayout>

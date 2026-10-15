@@ -17,7 +17,7 @@ export default function TermsOfServicePage() {
 
       <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 w-full">
         {/* Category Header */}
-        <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-3">
+        <div className="flex items-center gap-2 text-xs font-semibold text-[#5938F5] dark:text-violet-400 uppercase tracking-wider mb-3">
           <Scale className="w-4 h-4" />
           Legal Terms
         </div>
@@ -40,24 +40,24 @@ export default function TermsOfServicePage() {
         {/* Table of Contents */}
         <div className="mt-8 p-5 rounded-xl bg-slate-100/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm">
           <div className="font-semibold text-slate-800 dark:text-slate-200 mb-2 flex items-center gap-2">
-            <FileText className="w-4 h-4 text-emerald-600" />
+            <FileText className="w-4 h-4 text-[#5938F5]" />
             Table of Contents
           </div>
           <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-600 dark:text-slate-400">
-            <li><a href="#acceptance" className="hover:text-emerald-600 hover:underline">1. Acceptance of Terms</a></li>
-            <li><a href="#description" className="hover:text-emerald-600 hover:underline">2. Description of Wafilow</a></li>
-            <li><a href="#account" className="hover:text-emerald-600 hover:underline">3. Account Registration & Eligibility</a></li>
-            <li><a href="#meta-compliance" className="hover:text-emerald-600 hover:underline">4. Meta & WhatsApp Policy Compliance</a></li>
-            <li><a href="#prohibited-uses" className="hover:text-emerald-600 hover:underline">5. Prohibited Uses & Content</a></li>
-            <li><a href="#messaging-consent" className="hover:text-emerald-600 hover:underline">6. Customer Consent & Messaging Rules</a></li>
-            <li><a href="#account-security" className="hover:text-emerald-600 hover:underline">7. Account Security & Credentials</a></li>
-            <li><a href="#availability" className="hover:text-emerald-600 hover:underline">8. Service Availability & Third-Party APIs</a></li>
-            <li><a href="#intellectual-property" className="hover:text-emerald-600 hover:underline">9. Intellectual Property</a></li>
-            <li><a href="#suspension" className="hover:text-emerald-600 hover:underline">10. Suspension & Termination</a></li>
-            <li><a href="#liability" className="hover:text-emerald-600 hover:underline">11. Limitation of Liability</a></li>
-            <li><a href="#disclaimer" className="hover:text-emerald-600 hover:underline">12. Disclaimer of Warranties</a></li>
-            <li><a href="#governing-law" className="hover:text-emerald-600 hover:underline">13. Governing Law</a></li>
-            <li><a href="#contact" className="hover:text-emerald-600 hover:underline">14. Contact Information</a></li>
+            <li><a href="#acceptance" className="hover:text-[#5938F5] hover:underline">1. Acceptance of Terms</a></li>
+            <li><a href="#description" className="hover:text-[#5938F5] hover:underline">2. Description of Wafilow</a></li>
+            <li><a href="#account" className="hover:text-[#5938F5] hover:underline">3. Account Registration & Eligibility</a></li>
+            <li><a href="#meta-compliance" className="hover:text-[#5938F5] hover:underline">4. Meta & WhatsApp Policy Compliance</a></li>
+            <li><a href="#prohibited-uses" className="hover:text-[#5938F5] hover:underline">5. Prohibited Uses & Content</a></li>
+            <li><a href="#messaging-consent" className="hover:text-[#5938F5] hover:underline">6. Customer Consent & Messaging Rules</a></li>
+            <li><a href="#account-security" className="hover:text-[#5938F5] hover:underline">7. Account Security & Credentials</a></li>
+            <li><a href="#availability" className="hover:text-[#5938F5] hover:underline">8. Service Availability & Third-Party APIs</a></li>
+            <li><a href="#intellectual-property" className="hover:text-[#5938F5] hover:underline">9. Intellectual Property</a></li>
+            <li><a href="#suspension" className="hover:text-[#5938F5] hover:underline">10. Suspension & Termination</a></li>
+            <li><a href="#liability" className="hover:text-[#5938F5] hover:underline">11. Limitation of Liability</a></li>
+            <li><a href="#disclaimer" className="hover:text-[#5938F5] hover:underline">12. Disclaimer of Warranties</a></li>
+            <li><a href="#governing-law" className="hover:text-[#5938F5] hover:underline">13. Governing Law</a></li>
+            <li><a href="#contact" className="hover:text-[#5938F5] hover:underline">14. Contact Information</a></li>
           </ul>
         </div>
 
@@ -254,14 +254,14 @@ export default function TermsOfServicePage() {
 
         {/* Bottom Navigation */}
         <div className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4 text-sm">
-          <Link href="/" className="text-slate-600 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400">
+          <Link href="/" className="text-slate-600 hover:text-[#5938F5] dark:text-slate-400 dark:hover:text-[#5938F5]">
             ← Back to Home
           </Link>
           <div className="flex gap-4">
-            <Link href="/privacy-policy" className="text-emerald-600 hover:underline">
+            <Link href="/privacy-policy" className="text-[#5938F5] hover:underline">
               Privacy Policy
             </Link>
-            <Link href="/data-deletion" className="text-emerald-600 hover:underline">
+            <Link href="/data-deletion" className="text-[#5938F5] hover:underline">
               Data Deletion
             </Link>
           </div>

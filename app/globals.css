@@ -4,25 +4,25 @@
 :root {
   --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
-  --background: #f8fafc;
-  --foreground: #090e1a;
+  --background: #f7f8fc;
+  --foreground: #111827;
   --surface: #ffffff;
-  --surface-subtle: #f1f5f9;
+  --surface-subtle: #f1f3f9;
   --border: #e2e8f0;
-  --primary: #4f46e5;
-  --accent-violet: #7c3aed;
+  --primary: #5938F5;
+  --accent-violet: #5938F5;
   --whatsapp-emerald: #10b981;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #080c14;
+    --background: #0b0f19;
     --foreground: #f8fafc;
-    --surface: #0f1626;
-    --surface-subtle: #151e33;
-    --border: #1e293b;
-    --primary: #6366f1;
-    --accent-violet: #8b5cf6;
+    --surface: #111827;
+    --surface-subtle: #172033;
+    --border: #1f293d;
+    --primary: #6c4ff6;
+    --accent-violet: #6c4ff6;
     --whatsapp-emerald: #10b981;
   }
 }
