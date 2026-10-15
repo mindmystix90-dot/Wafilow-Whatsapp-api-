@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  normalizePhoneNumber,
+  sendWhatsAppMessage,
+  getWhatsAppConnection,
+  validateEnvironment,
+  WhatsAppEnvironment,
+} from "@/lib/whatsapp";
 import { prisma } from "@/lib/prisma";
-import { sendWhatsAppMessage, getWhatsAppConfig, normalizePhoneNumber } from "@/lib/whatsapp";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/whatsapp/messages?contactId=...
- * Retrieves real messages from the database for a specific contact
+ * GET /api/whatsapp/messages
+ * Retrieves real messages from the database for a specific contact and environment.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -30,6 +36,13 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const contactId = searchParams.get("contactId");
+    const rawEnv = searchParams.get("environment") || "production";
+    let environment: WhatsAppEnvironment = "production";
+    try {
+      environment = validateEnvironment(rawEnv);
+    } catch {
+      environment = "production";
+    }
 
     if (!contactId) {
       return NextResponse.json(
@@ -58,6 +71,7 @@ export async function GET(req: NextRequest) {
       where: {
         contactId,
         ...(orgId ? { organizationId: orgId } : {}),
+        environment,
       },
       orderBy: { timestamp: "asc" },
     });
@@ -74,11 +88,13 @@ export async function GET(req: NextRequest) {
         timestamp: m.timestamp,
         status: m.status,
         errorMessage: m.errorMessage,
+        environment: m.environment,
       };
     });
 
     return NextResponse.json({
       success: true,
+      environment,
       messages: formattedMessages,
     });
   } catch (error: unknown) {
@@ -93,8 +109,8 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/whatsapp/messages
- * Sends a real text message through Meta Cloud API and persists to DB.
- * Never marks the message as sent if Meta rejects it.
+ * Sends a real text message through Meta Cloud API for the specified environment
+ * and persists to DB with strict environment isolation.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -103,7 +119,10 @@ export async function POST(req: NextRequest) {
     let sessionOrgId = session?.user?.organizationId;
 
     if (!session || !userId) {
-      return NextResponse.json({ success: false, error: "Unauthorized. Please sign in to send messages." }, { status: 401 });
+      return NextResponse.json(
+        { success: false, error: "Unauthorized. Please sign in to send messages." },
+        { status: 401 }
+      );
     }
 
     if (!sessionOrgId) {
@@ -122,7 +141,17 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { contactId, text, to } = body;
+    const { contactId, text, to, environment: rawEnv = "production" } = body;
+
+    let environment: WhatsAppEnvironment;
+    try {
+      environment = validateEnvironment(rawEnv);
+    } catch (envErr) {
+      return NextResponse.json(
+        { success: false, error: envErr instanceof Error ? envErr.message : "Invalid environment" },
+        { status: 400 }
+      );
+    }
 
     if (!text || !text.trim()) {
       return NextResponse.json(
@@ -132,7 +161,6 @@ export async function POST(req: NextRequest) {
     }
 
     let contact = null;
-
     if (contactId) {
       contact = await prisma.contact.findUnique({
         where: { id: contactId },
@@ -149,6 +177,7 @@ export async function POST(req: NextRequest) {
         where: { phoneNumber: norm.digits },
         update: {
           organizationId: sessionOrgId,
+          environment,
         },
         create: {
           name: norm.formatted,
@@ -156,6 +185,7 @@ export async function POST(req: NextRequest) {
           waId: norm.digits,
           status: "active",
           organizationId: sessionOrgId,
+          environment,
         },
       });
     }
@@ -174,34 +204,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const config = await getWhatsAppConfig(sessionOrgId);
-
+    const config = await getWhatsAppConnection(sessionOrgId, environment);
     if (!config.isConfigured) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "Your WhatsApp Business account is not connected yet. Please connect via Embedded Signup or configure credentials in Settings.",
+          error: `Your ${environment.toUpperCase()} WhatsApp Business account is not connected yet. Please configure credentials in Settings.`,
+          environment,
         },
         { status: 400 }
       );
     }
 
-    // Call Meta Cloud API v24.0
+    // Call Meta Cloud API v24.0 strictly with requested environment
     const sendResult = await sendWhatsAppMessage({
       to: contact.phoneNumber,
       type: "text",
       text: text.trim(),
       organizationId: contact.organizationId || undefined,
+      environment,
     });
 
-    // RULE 9: Do not mark the message successful if Meta rejects it.
     if (!sendResult.success) {
-      // Record failed outbound attempt in DB with actual error message
+      // Record failed outbound attempt in DB with environment tag
       const failedMsg = await prisma.message.create({
         data: {
           contactId: contact.id,
           organizationId: contact.organizationId || config.organizationId,
+          environment,
           direction: "outbound",
           content: text.trim(),
           type: "text",
@@ -213,7 +243,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
+          environment,
           error: sendResult.error,
+          errorCode: sendResult.errorCode,
+          errorType: sendResult.errorType,
           metaError: sendResult.rawMetaError,
           failedMessage: {
             id: failedMsg.id,
@@ -222,6 +255,7 @@ export async function POST(req: NextRequest) {
             status: "failed",
             errorMessage: sendResult.error,
             time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            environment,
           },
         },
         { status: 400 }
@@ -233,6 +267,7 @@ export async function POST(req: NextRequest) {
       data: {
         contactId: contact.id,
         organizationId: contact.organizationId || config.organizationId,
+        environment,
         wamId: sendResult.messageId,
         direction: "outbound",
         content: text.trim(),
@@ -241,17 +276,17 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Update contact's updatedAt timestamp
     await prisma.contact.update({
       where: { id: contact.id },
-      data: { updatedAt: new Date() },
+      data: { updatedAt: new Date(), environment },
     });
 
     // Keep Conversation record in sync
     const orgId = contact.organizationId || config.organizationId;
     const existingConv = await prisma.conversation.findFirst({
-      where: { contactId: contact.id, organizationId: orgId },
+      where: { contactId: contact.id, organizationId: orgId, environment },
     });
+
     if (existingConv) {
       await prisma.conversation.update({
         where: { id: existingConv.id },
@@ -262,6 +297,7 @@ export async function POST(req: NextRequest) {
         data: {
           contactId: contact.id,
           organizationId: orgId,
+          environment,
           lastMessageAt: new Date(),
           status: "open",
         },
@@ -269,9 +305,9 @@ export async function POST(req: NextRequest) {
     }
 
     const d = new Date(savedMsg.timestamp);
-
     return NextResponse.json({
       success: true,
+      environment,
       message: {
         id: savedMsg.id,
         wamId: savedMsg.wamId,
@@ -280,6 +316,7 @@ export async function POST(req: NextRequest) {
         status: "sent",
         time: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         timestamp: savedMsg.timestamp,
+        environment,
       },
     });
   } catch (error: unknown) {

@@ -1,6 +1,5 @@
-import { NextResponse } from "next/server";
-import { getWhatsAppConfig } from "@/lib/whatsapp";
-import { getServerWhatsAppEnv } from "@/lib/env";
+import { NextRequest, NextResponse } from "next/server";
+import { testWhatsAppConnectionDiagnostic, validateEnvironment, WhatsAppEnvironment } from "@/lib/whatsapp";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -9,18 +8,22 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET or POST /api/whatsapp/test-connection
- * Tests connectivity strictly using the current authenticated customer's credentials.
- * Rejects unauthenticated requests and accounts with no connection.
+ * Tests connectivity strictly using the current authenticated customer's credentials
+ * for the requested environment ('production' or 'sandbox').
  */
-export async function POST() {
-  return testMetaConnection();
+export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => ({}));
+  const rawEnv = body?.environment || "production";
+  return runTest(req, rawEnv);
 }
 
-export async function GET() {
-  return testMetaConnection();
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const rawEnv = searchParams.get("environment") || "production";
+  return runTest(req, rawEnv);
 }
 
-async function testMetaConnection() {
+async function runTest(req: NextRequest, rawEnv: string) {
   try {
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
@@ -49,103 +52,55 @@ async function testMetaConnection() {
       return NextResponse.json(
         {
           success: false,
-          error: "No WhatsApp Business account connected to your workspace yet.",
+          error: "No WhatsApp Business account workspace found for your account.",
           code: "NOT_CONFIGURED",
         },
         { status: 400 }
       );
     }
 
-    const config = await getWhatsAppConfig(orgId);
-    const env = getServerWhatsAppEnv();
-    const apiVersion = env.apiVersion || "v24.0";
-
-    const phoneNumberId = config.phoneNumberId;
-    const accessToken = config.accessToken;
-
-    if (!config.isConfigured || !phoneNumberId || !accessToken) {
+    let environment: WhatsAppEnvironment;
+    try {
+      environment = validateEnvironment(rawEnv);
+    } catch {
       return NextResponse.json(
         {
           success: false,
-          error: "Your WhatsApp Business account is not yet connected. Please connect via Embedded Signup or configure credentials in Settings.",
-          code: "NOT_CONFIGURED",
+          error: `Invalid environment '${rawEnv}'. Expected 'production' or 'sandbox'.`,
+          code: "INVALID_ENVIRONMENT",
         },
         { status: 400 }
       );
     }
 
-    // Call real Meta Graph API endpoint for this phone number
-    const endpoint = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}?fields=verified_name,code_verification_status,display_phone_number,quality_rating`;
+    const result = await testWhatsAppConnectionDiagnostic(orgId, environment);
 
-    const response = await fetch(endpoint, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    const data = await response.json();
-
-    if (!response.ok || data.error) {
-      const metaErr = data.error || {};
-      const code = metaErr.code;
-      const subcode = metaErr.error_subcode;
-      const rawMessage = metaErr.message || "Unknown Meta API error";
-
-      let errorSummary = `Meta API Error (${code || "HTTP " + response.status}): ${rawMessage}`;
-
-      if (code === 190) {
-        errorSummary = `Invalid access token (Code 190): ${rawMessage}. Verify your WhatsApp Access Token in Settings or environment variables.`;
-      } else if (code === 100) {
-        errorSummary = `Invalid phone number ID or parameter (Code 100): ${rawMessage}. Check your Phone Number ID.`;
-      } else if (code === 200 || code === 10) {
-        errorSummary = `Permission denied (Code ${code}): ${rawMessage}. Ensure your Meta System User has whatsapp_business_messaging and whatsapp_business_management permissions.`;
-      } else if (code === 80007) {
-        errorSummary = `Rate limit exceeded (Code 80007): ${rawMessage}.`;
-      }
-
-      console.error("[Meta Test Connection Error]:", {
-        status: response.status,
-        code,
-        subcode,
-        message: rawMessage,
-      });
-
+    if (!result.success) {
       return NextResponse.json(
         {
           success: false,
-          error: errorSummary,
-          metaError: {
-            code,
-            subcode,
-            type: metaErr.type,
-            message: rawMessage,
-            fbtrace_id: metaErr.fbtrace_id,
-          },
+          environment,
+          error: result.error,
+          errorCode: result.errorCode,
         },
         { status: 400 }
       );
     }
 
-    // Real Meta verification succeeded
     return NextResponse.json({
       success: true,
-      message: "WhatsApp Cloud API connection verified successfully with Meta.",
-      details: {
-        verifiedName: data.verified_name || "Verified",
-        displayPhoneNumber: data.display_phone_number || "Active",
-        qualityRating: data.quality_rating || "UNKNOWN",
-        verificationStatus: data.code_verification_status || "VERIFIED",
-      },
+      environment,
+      message: `${environment === "sandbox" ? "Meta Sandbox" : "Production"} WhatsApp Cloud API verified successfully.`,
+      phoneStatus: result.phoneStatus,
+      wabaStatus: result.wabaStatus,
+      sandboxRestrictions: result.sandboxRestrictions,
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Network error contacting Meta Cloud API";
-    console.error("[Meta Test Connection Network Exception]:", error);
+    const errorMsg = error instanceof Error ? error.message : "Error contacting Meta";
     return NextResponse.json(
       {
         success: false,
-        error: `Failed to reach Meta Graph API: ${errorMsg}`,
+        error: `Diagnostic test failed: ${errorMsg}`,
       },
       { status: 500 }
     );

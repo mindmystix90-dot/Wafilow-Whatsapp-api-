@@ -73,6 +73,29 @@ model Organization {
   conversations       Conversation[]
   messages            Message[]
   wabaAccounts        WhatsAppBusinessAccount[]
+  whatsappConnections WhatsAppConnection[]
+}
+
+model WhatsAppConnection {
+  id                 String       @id @default(cuid())
+  organizationId     String
+  environment        String       @default("production") // "production" | "sandbox"
+  wabaId             String?
+  phoneNumberId      String?
+  displayPhoneNumber String?
+  verifiedName       String?
+  accessToken        String?      // Encrypted using AES-256-GCM via lib/crypto.ts
+  status             String       @default("disconnected") // "connected" | "disconnected" | "error"
+  lastCheckedAt      DateTime?
+  lastError          String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, environment])
+  @@index([phoneNumberId])
+  @@index([wabaId])
 }
 
 model WhatsAppBusinessAccount {
@@ -82,7 +105,6 @@ model WhatsAppBusinessAccount {
   name           String?
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
-
   organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   phoneNumbers   WhatsAppPhoneNumber[]
 }
@@ -95,13 +117,13 @@ model WhatsAppPhoneNumber {
   verifiedName   String?
   createdAt      DateTime                 @default(now())
   updatedAt      DateTime                 @updatedAt
-
   wabaAccount    WhatsAppBusinessAccount? @relation(fields: [wabaAccountId], references: [id], onDelete: Cascade)
 }
 
 model Contact {
   id             String         @id @default(cuid())
   organizationId String?
+  environment    String         @default("production") // "production" | "sandbox"
   name           String
   phoneNumber    String         @unique
   waId           String?
@@ -119,6 +141,7 @@ model Conversation {
   id             String        @id @default(cuid())
   contactId      String
   organizationId String?
+  environment    String        @default("production") // "production" | "sandbox"
   status         String        @default("open") // "open" | "closed"
   lastMessageAt  DateTime      @default(now())
   createdAt      DateTime      @default(now())
@@ -153,6 +176,7 @@ model Message {
   id             String        @id @default(cuid())
   contactId      String
   organizationId String?
+  environment    String        @default("production") // "production" | "sandbox"
   wamId          String?       @unique
   direction      String        // "inbound" | "outbound"
   content        String

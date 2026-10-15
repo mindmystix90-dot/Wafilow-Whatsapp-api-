@@ -388,6 +388,38 @@ export async function POST(req: NextRequest) {
           displayPhoneNumber: displayPhone || undefined,
         },
       });
+
+      // Also upsert explicit WhatsAppConnection for production
+      await tx.whatsAppConnection.upsert({
+        where: {
+          organizationId_environment: {
+            organizationId: targetOrg.id,
+            environment: "production",
+          },
+        },
+        update: {
+          wabaId: resolvedWabaId,
+          phoneNumberId: resolvedPhoneId,
+          displayPhoneNumber: displayPhone || undefined,
+          verifiedName: verifiedName || undefined,
+          accessToken: encryptToken(accessToken),
+          status: "connected",
+          lastCheckedAt: new Date(),
+          lastError: null,
+          updatedAt: new Date(),
+        },
+        create: {
+          organizationId: targetOrg.id,
+          environment: "production",
+          wabaId: resolvedWabaId,
+          phoneNumberId: resolvedPhoneId,
+          displayPhoneNumber: displayPhone || null,
+          verifiedName: verifiedName || null,
+          accessToken: encryptToken(accessToken),
+          status: "connected",
+          lastCheckedAt: new Date(),
+        },
+      });
     });
 
     console.log(

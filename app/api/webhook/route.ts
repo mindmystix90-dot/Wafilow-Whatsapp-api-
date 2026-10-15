@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { resolveOrganizationForWebhook } from "@/lib/whatsapp";
+import { resolveOrganizationAndConnectionForWebhook } from "@/lib/whatsapp";
 
 /**
  * Meta WhatsApp Webhook Verification (GET)
@@ -50,26 +50,26 @@ interface MetaWebhookMessage {
     button_reply?: { title: string; id: string };
     list_reply?: { title: string; id: string };
   };
-  image?: { caption?: string; id?: string };
-  audio?: { id?: string };
-  document?: { filename?: string; id?: string };
-}
-
-interface MetaWebhookStatus {
-  id: string;
-  status: "sent" | "delivered" | "read" | "failed";
-  timestamp: string;
-  recipient_id: string;
-  errors?: Array<{ code: number; title: string; message: string }>;
+  image?: { id: string; mime_type: string; sha256: string; caption?: string };
+  audio?: { id: string; mime_type: string };
+  document?: { id: string; filename?: string; mime_type: string };
 }
 
 interface MetaWebhookContact {
-  profile?: { name: string };
+  profile: { name: string };
   wa_id: string;
 }
 
+interface MetaWebhookStatus {
+  id: string; // wamId
+  status: "sent" | "delivered" | "read" | "failed";
+  timestamp: string;
+  recipient_id: string;
+  errors?: Array<{ code: number; title: string; message?: string }>;
+}
+
 interface MetaWebhookChangeValue {
-  messaging_product: string;
+  messaging_product?: string;
   metadata?: {
     display_phone_number?: string;
     phone_number_id?: string;
@@ -83,7 +83,7 @@ interface MetaWebhookChangeValue {
 /**
  * Meta WhatsApp Webhook Event Ingestion (POST)
  * Handles incoming messages and message delivery/read/failed statuses.
- * Deduplicates events and isolates organizations.
+ * Deduplicates events and strictly isolates organizations and environments (production vs sandbox).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -111,15 +111,17 @@ export async function POST(req: NextRequest) {
         const val: MetaWebhookChangeValue = change.value || {};
         const phoneNumberId = val.metadata?.phone_number_id;
 
-        // 1. Resolve Organization: NEVER attach to arbitrary first organization
-        const org = await resolveOrganizationForWebhook(phoneNumberId, wabaId);
-
-        if (!org) {
+        // 1. Resolve Organization & Environment strictly: NEVER attach to arbitrary first organization
+        const resolved = await resolveOrganizationAndConnectionForWebhook(phoneNumberId, wabaId);
+        if (!resolved) {
           console.warn(
             `[Meta Webhook] Received webhook for unconfigured WABA/Phone number (${phoneNumberId} / ${wabaId}). Skipping processing to maintain tenant isolation.`
           );
           continue;
         }
+
+        const orgId = resolved.id;
+        const environment = resolved.environment;
 
         // 2. Process Status Updates (sent, delivered, read, failed)
         if (val.statuses && Array.isArray(val.statuses)) {
@@ -135,8 +137,10 @@ export async function POST(req: NextRequest) {
 
               if (existingMsg) {
                 // Tenant check: ensure message belongs to the verified organization
-                if (existingMsg.organizationId && existingMsg.organizationId !== org.id) {
-                  console.warn(`[Meta Webhook] Tenant isolation violation: status update for message ${wamId} does not belong to Org ${org.id}`);
+                if (existingMsg.organizationId && existingMsg.organizationId !== orgId) {
+                  console.warn(
+                    `[Meta Webhook] Tenant isolation violation: status update for message ${wamId} does not belong to Org ${orgId}`
+                  );
                   continue;
                 }
 
@@ -147,7 +151,7 @@ export async function POST(req: NextRequest) {
                     ...(errorMessage ? { errorMessage } : {}),
                   },
                 });
-                console.log(`[Meta Webhook] Updated message ${wamId} status to '${newStatus}'`);
+                console.log(`[Meta Webhook] Updated message ${wamId} (${environment}) status to '${newStatus}'`);
               }
             } catch (statusErr) {
               console.error(`[Meta Webhook] Error updating status for message ${wamId}:`, statusErr);
@@ -165,14 +169,13 @@ export async function POST(req: NextRequest) {
             const existingMsg = await prisma.message.findUnique({
               where: { wamId },
             });
-
             if (existingMsg) {
               console.log(`[Meta Webhook] Duplicate message ${wamId} received. Skipping.`);
               continue;
             }
 
             const isEcho = change.field === "smb_message_echoes" || Boolean(msg.recipient_id);
-            const targetCustomerPhone = isEcho ? (msg.recipient_id || msg.to || msg.from) : msg.from;
+            const targetCustomerPhone = isEcho ? msg.recipient_id || msg.to || msg.from : msg.from;
             const messageDirection = isEcho ? "outbound" : "inbound";
 
             if (!targetCustomerPhone) continue;
@@ -181,7 +184,7 @@ export async function POST(req: NextRequest) {
             const contactProfile = val.contacts?.find((c) => c.wa_id === targetCustomerPhone);
             const contactName = contactProfile?.profile?.name || `+${targetCustomerPhone}`;
 
-            // Identify or create Contact
+            // Identify or create Contact with environment isolation
             let contact;
             try {
               contact = await prisma.contact.upsert({
@@ -189,7 +192,8 @@ export async function POST(req: NextRequest) {
                 update: {
                   name: contactProfile?.profile?.name ? contactProfile.profile.name : undefined,
                   waId: targetCustomerPhone,
-                  organizationId: org.id,
+                  organizationId: orgId,
+                  environment,
                   updatedAt: new Date(),
                 },
                 create: {
@@ -197,8 +201,14 @@ export async function POST(req: NextRequest) {
                   phoneNumber: targetCustomerPhone,
                   waId: targetCustomerPhone,
                   status: "active",
-                  organizationId: org.id,
-                  tags: isEcho ? "WhatsApp Coexistence Echo" : "WhatsApp Inbound",
+                  organizationId: orgId,
+                  environment,
+                  tags:
+                    environment === "sandbox"
+                      ? "Sandbox Inbound"
+                      : isEcho
+                      ? "WhatsApp Coexistence Echo"
+                      : "WhatsApp Inbound",
                 },
               });
             } catch (contactErr) {
@@ -227,15 +237,14 @@ export async function POST(req: NextRequest) {
               contentText = `[${msg.type || "WhatsApp message"}]`;
             }
 
-            const msgTimestamp = msg.timestamp
-              ? new Date(Number(msg.timestamp) * 1000)
-              : new Date();
+            const msgTimestamp = msg.timestamp ? new Date(Number(msg.timestamp) * 1000) : new Date();
 
             try {
               await prisma.message.create({
                 data: {
                   contactId: contact.id,
-                  organizationId: org.id,
+                  organizationId: orgId,
+                  environment,
                   wamId,
                   direction: messageDirection,
                   content: contentText,
@@ -245,10 +254,11 @@ export async function POST(req: NextRequest) {
                 },
               });
 
-              // Keep Conversation record in sync
+              // Keep Conversation record in sync with environment
               const existingConv = await prisma.conversation.findFirst({
-                where: { contactId: contact.id, organizationId: org.id },
+                where: { contactId: contact.id, organizationId: orgId, environment },
               });
+
               if (existingConv) {
                 await prisma.conversation.update({
                   where: { id: existingConv.id },
@@ -258,7 +268,8 @@ export async function POST(req: NextRequest) {
                 await prisma.conversation.create({
                   data: {
                     contactId: contact.id,
-                    organizationId: org.id,
+                    organizationId: orgId,
+                    environment,
                     lastMessageAt: msgTimestamp,
                     status: "open",
                   },
@@ -266,7 +277,7 @@ export async function POST(req: NextRequest) {
               }
 
               console.log(
-                `[Meta Webhook] Stored ${messageDirection} message ${wamId} for ${contactName} (${targetCustomerPhone}) in Org ${org.name}`
+                `[Meta Webhook] Stored ${messageDirection} message ${wamId} [${environment.toUpperCase()}] for ${contactName} in Org ${resolved.name}`
               );
             } catch (saveErr) {
               console.error("[Meta Webhook] Error persisting message:", saveErr);
@@ -280,7 +291,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: "EVENT_RECEIVED" }, { status: 200 });
   } catch (error) {
     console.error("[Meta Webhook Processing Error]:", error);
-    // Returning 200 prevents Meta from disabling the webhook endpoint during transient errors
     return NextResponse.json({ status: "ERROR_LOGGED" }, { status: 200 });
   }
 }

@@ -15,6 +15,8 @@ import {
   Smartphone,
   CheckCheck,
   AlertCircle,
+  Beaker,
+  Building2,
 } from "lucide-react";
 
 interface DashboardStats {
@@ -52,21 +54,27 @@ interface MetaConfigInfo {
 }
 
 export default function DashboardPage() {
+  const [environment, setEnvironment] = useState<"production" | "sandbox">("production");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentInquiries, setRecentInquiries] = useState<RecentInquiry[]>([]);
   const [metaConfig, setMetaConfig] = useState<MetaConfigInfo | null>(null);
+  const [connections, setConnections] = useState<{
+    production?: { configured: boolean; status?: string; displayPhoneNumber?: string | null; phoneNumberId?: string | null };
+    sandbox?: { configured: boolean; status?: string; displayPhoneNumber?: string | null; phoneNumberId?: string | null };
+  } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchDashboardData = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/dashboard/stats", { cache: "no-store" });
+      const res = await fetch(`/api/dashboard/stats?environment=${environment}`, { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
           setStats(data.stats);
           setRecentInquiries(data.recentInquiries || []);
           setMetaConfig(data.metaConfig || null);
+          setConnections(data.connections || null);
         }
       }
     } catch (err) {
@@ -79,14 +87,16 @@ export default function DashboardPage() {
   useEffect(() => {
     let ignore = false;
     async function load() {
+      setIsLoading(true);
       try {
-        const res = await fetch("/api/dashboard/stats", { cache: "no-store" });
+        const res = await fetch(`/api/dashboard/stats?environment=${environment}`, { cache: "no-store" });
         if (res.ok) {
           const data = await res.json();
           if (!ignore && data.success) {
             setStats(data.stats);
             setRecentInquiries(data.recentInquiries || []);
             setMetaConfig(data.metaConfig || null);
+            setConnections(data.connections || null);
           }
         }
       } catch (err) {
@@ -99,26 +109,55 @@ export default function DashboardPage() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [environment]);
 
   return (
     <AppLayout
       title="Dashboard Overview"
       subtitle="Real-time database metrics, messaging volume, and active customer sessions"
       action={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Environment Switcher */}
+          <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setEnvironment("production")}
+              className={`py-1.5 px-3 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer text-xs ${
+                environment === "production"
+                  ? "bg-white dark:bg-[#0c1220] text-[#5938F5] dark:text-violet-400 shadow-xs"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span>Production</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setEnvironment("sandbox")}
+              className={`py-1.5 px-3 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer text-xs ${
+                environment === "sandbox"
+                  ? "bg-amber-500 text-white shadow-xs"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+              }`}
+            >
+              <Beaker className="w-3.5 h-3.5" />
+              <span>Sandbox</span>
+            </button>
+          </div>
+
           <button
             onClick={fetchDashboardData}
             disabled={isLoading}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1220] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
             title="Refresh metrics from database"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-indigo-600" : ""}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-[#5938F5]" : ""}`} />
             <span>Refresh</span>
           </button>
           <Link
             href="/inbox"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-all shadow-sm cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#5938F5] hover:bg-[#4d2ee0] text-white text-xs font-semibold transition-all shadow-sm cursor-pointer"
           >
             <MessageSquare className="w-3.5 h-3.5" />
             <span>Live Inbox</span>
@@ -127,24 +166,30 @@ export default function DashboardPage() {
       }
     >
       <div className="space-y-6">
-        {/* Meta Configuration Status Banner */}
+        {/* Active Environment Status Banner */}
         <div
           className={`p-4 sm:p-5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-            metaConfig?.isConfigured
+            environment === "sandbox"
+              ? "bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-200"
+              : metaConfig?.isConfigured
               ? "bg-white dark:bg-[#0c1220] border-emerald-500/30 text-slate-900 dark:text-white shadow-sm"
-              : "bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-200"
+              : "bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
           }`}
         >
           <div className="flex items-start gap-3.5">
             <div
               className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                metaConfig?.isConfigured
+                environment === "sandbox"
+                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                  : metaConfig?.isConfigured
                   ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                  : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700"
               }`}
             >
-              {metaConfig?.isConfigured ? (
-                <Smartphone className="w-5 h-5" />
+              {environment === "sandbox" ? (
+                <Beaker className="w-5 h-5" />
+              ) : metaConfig?.isConfigured ? (
+                <Building2 className="w-5 h-5" />
               ) : (
                 <AlertCircle className="w-5 h-5" />
               )}
@@ -152,35 +197,43 @@ export default function DashboardPage() {
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-sm">
-                  {metaConfig?.isConfigured
-                    ? "Meta WhatsApp Cloud API v24.0 Connected"
-                    : "Meta Cloud API Credentials Required"}
+                  {environment === "sandbox"
+                    ? "Meta Developer Sandbox Environment Active"
+                    : metaConfig?.isConfigured
+                    ? "Meta WhatsApp Cloud API v24.0 Connected (Live)"
+                    : "Production WhatsApp Not Connected"}
                 </span>
                 <span
                   className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    metaConfig?.isConfigured
+                    environment === "sandbox"
+                      ? "bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-400/40"
+                      : metaConfig?.isConfigured
                       ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
-                      : "bg-amber-500/20 text-amber-800 dark:text-amber-300"
+                      : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
                   }`}
                 >
-                  {metaConfig?.isConfigured ? "Production Active" : "Pending Setup"}
+                  {environment === "sandbox" ? "SANDBOX MODE" : "PRODUCTION LIVE"}
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-2xl">
-                {metaConfig?.isConfigured
-                  ? `Active WABA ID ${metaConfig.wabaId} with Phone Number ID ${metaConfig.phoneNumberId}. Bi-directional webhook verification active.`
-                  : "Connect your Meta Business Manager account via 1-Click Embedded Signup or supply server environment credentials to enable messaging."}
+                {environment === "sandbox"
+                  ? "Displaying metrics for your Meta Developer Sandbox test channel. Test pings and messages sent in Sandbox do not reach live business customers."
+                  : metaConfig?.isConfigured
+                  ? `Active WABA ID ${metaConfig.wabaId} with Phone Number ID ${metaConfig.phoneNumberId}. Real customer inquiries and outbound delivery tracked.`
+                  : "Connect your Meta Business account via Embedded Signup or configure credentials in Settings to start messaging live customers."}
               </p>
             </div>
           </div>
 
-          <Link
-            href="/settings"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap self-start sm:self-auto transition-colors"
-          >
-            <span>{metaConfig?.isConfigured ? "Manage API Settings" : "Configure Credentials"}</span>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/settings"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap transition-colors"
+            >
+              <span>Manage Connections</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </Link>
+          </div>
         </div>
 
         {/* Real Metrics Grid (Zero Fake Data) */}

@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { normalizePhoneNumber, sendWhatsAppMessage, getWhatsAppConfig } from "@/lib/whatsapp";
+import {
+  normalizePhoneNumber,
+  sendWhatsAppMessage,
+  getWhatsAppConnection,
+  validateEnvironment,
+  WhatsAppEnvironment,
+} from "@/lib/whatsapp";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -33,7 +39,17 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { to, messageType = "template", text } = body;
+    const { to, messageType = "template", text, environment: rawEnv = "production" } = body;
+
+    let environment: WhatsAppEnvironment;
+    try {
+      environment = validateEnvironment(rawEnv);
+    } catch {
+      return NextResponse.json(
+        { success: false, error: `Invalid environment '${rawEnv}'. Expected 'production' or 'sandbox'.` },
+        { status: 400 }
+      );
+    }
 
     if (!to) {
       return NextResponse.json(
@@ -50,43 +66,47 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const config = await getWhatsAppConfig(orgId);
+    const config = await getWhatsAppConnection(orgId, environment);
     if (!config.isConfigured) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "WhatsApp Business Cloud API is not connected for your workspace. Please connect via Embedded Signup in Settings.",
+          error: `WhatsApp Cloud API is not configured for ${environment.toUpperCase()} mode. Please enter credentials in Settings.`,
+          environment,
           configured: false,
         },
         { status: 400 }
       );
     }
 
-    // Default to 'hello_world' template which is pre-approved by Meta for all WABAs and functions outside the 24h conversation window
+    // Default to 'hello_world' template which is pre-approved by Meta for all WABAs
     const sendResult = await sendWhatsAppMessage({
       to: norm.digits,
       type: messageType === "text" ? "text" : "template",
-      text: text || "Test ping from Wafilow WhatsApp Cloud API",
+      text: text || `Test ping from Wafilow WhatsApp Cloud API [${environment.toUpperCase()} MODE]`,
       template: {
         name: "hello_world",
         language: { code: "en_US" },
       },
       organizationId: orgId,
+      environment,
     });
 
     if (!sendResult.success) {
       return NextResponse.json(
         {
           success: false,
+          environment,
           error: sendResult.error,
+          errorCode: sendResult.errorCode,
+          errorType: sendResult.errorType,
           metaError: sendResult.rawMetaError,
         },
         { status: 400 }
       );
     }
 
-    // Persist contact & message to database for audit and inbox tracking
+    // Persist contact & message to database for audit and inbox tracking with environment tag
     try {
       const contact = await prisma.contact.upsert({
         where: { phoneNumber: norm.digits },
@@ -98,9 +118,10 @@ export async function POST(req: NextRequest) {
           name: `WhatsApp User (${norm.formatted})`,
           phoneNumber: norm.digits,
           waId: norm.digits,
-          tags: "Test Ping",
+          tags: `${environment === "sandbox" ? "Sandbox Test Ping" : "Test Ping"}`,
           status: "active",
           organizationId: config.organizationId,
+          environment,
         },
       });
 
@@ -108,9 +129,10 @@ export async function POST(req: NextRequest) {
         data: {
           contactId: contact.id,
           organizationId: config.organizationId,
+          environment,
           wamId: sendResult.messageId,
           direction: "outbound",
-          content: messageType === "text" && text ? text : "Template: hello_world (Test Ping)",
+          content: messageType === "text" && text ? text : `Template: hello_world (${environment.toUpperCase()} Ping)`,
           type: messageType === "text" ? "text" : "template",
           status: "sent",
         },
@@ -121,9 +143,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      environment,
       messageId: sendResult.messageId,
       recipient: norm.formatted,
-      message: `Test WhatsApp ping successfully dispatched via Meta Cloud API (ID: ${sendResult.messageId}).`,
+      message: `Test WhatsApp ping successfully dispatched via Meta Cloud API in ${environment.toUpperCase()} mode (ID: ${sendResult.messageId}).`,
     });
   } catch (error: unknown) {
     const errorMsg = error instanceof Error ? error.message : "Internal server error";

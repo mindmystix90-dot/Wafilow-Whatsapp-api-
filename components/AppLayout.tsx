@@ -25,6 +25,9 @@ interface AppLayoutProps {
   title: string;
   subtitle?: string;
   action?: ReactNode;
+  hideMobileBottomNav?: boolean;
+  noMainPadding?: boolean;
+  hideMobileHeader?: boolean;
 }
 
 interface NavItem {
@@ -48,7 +51,15 @@ const navItems: NavItem[] = [
   { href: "/settings", label: "Settings", icon: Settings, section: "system" },
 ];
 
-export default function AppLayout({ children, title, subtitle, action }: AppLayoutProps) {
+export default function AppLayout({
+  children,
+  title,
+  subtitle,
+  action,
+  hideMobileBottomNav = false,
+  noMainPadding = false,
+  hideMobileHeader = false,
+}: AppLayoutProps) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
@@ -78,43 +89,45 @@ export default function AppLayout({ children, title, subtitle, action }: AppLayo
   return (
     <div className="min-h-screen bg-slate-50/70 dark:bg-[#070b12] text-slate-900 dark:text-slate-100 flex flex-col lg:flex-row antialiased">
       {/* Mobile Top Header */}
-      <div className="lg:hidden sticky top-0 z-40 bg-white/95 dark:bg-[#0c1220]/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 px-4 h-15 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-slate-900 to-indigo-700 dark:from-indigo-600 dark:to-violet-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
-            W
-          </div>
-          <div className="flex flex-col">
-            <span className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white">
-              Wafilow
-            </span>
-            <span className="text-[10px] text-slate-500 font-medium">WhatsApp CRM</span>
-          </div>
-        </Link>
-
-        <div className="flex items-center gap-2">
-          <Link
-            href="/settings"
-            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900"
-          >
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${
-                isConfigured ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
-              }`}
-            />
-            <span className="text-slate-600 dark:text-slate-300">
-              {isConfigured ? "Connected" : "Setup Required"}
-            </span>
+      {!hideMobileHeader && (
+        <div className="lg:hidden sticky top-0 z-40 bg-white/95 dark:bg-[#0c1220]/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 px-4 h-15 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-slate-900 to-indigo-700 dark:from-indigo-600 dark:to-violet-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
+              W
+            </div>
+            <div className="flex flex-col">
+              <span className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white">
+                Wafilow
+              </span>
+              <span className="text-[10px] text-slate-500 font-medium">WhatsApp CRM</span>
+            </div>
           </Link>
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            aria-label="Toggle Navigation"
-          >
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
+
+          <div className="flex items-center gap-2">
+            <Link
+              href="/settings"
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900"
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  isConfigured ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+                }`}
+              />
+              <span className="text-slate-600 dark:text-slate-300">
+                {isConfigured ? "Connected" : "Setup Required"}
+              </span>
+            </Link>
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label="Toggle Navigation"
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Mobile Navigation Drawer */}
       {mobileMenuOpen && (
@@ -376,7 +389,12 @@ export default function AppLayout({ children, title, subtitle, action }: AppLayo
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header Bar */}
-        <header className="border-b border-slate-200/80 dark:border-slate-800/80 bg-white/70 dark:bg-[#0c1220]/70 backdrop-blur-md px-4 sm:px-8 py-5">
+        {/* Top Header Bar */}
+        <header
+          className={`${
+            hideMobileHeader ? "hidden lg:block" : "block"
+          } border-b border-slate-200/80 dark:border-slate-800/80 bg-white/70 dark:bg-[#0c1220]/70 backdrop-blur-md px-4 sm:px-8 py-5`}
+        >
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
@@ -398,37 +416,43 @@ export default function AppLayout({ children, title, subtitle, action }: AppLayo
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 px-4 sm:px-8 py-6 max-w-7xl mx-auto w-full">
+        <main
+          className={`flex-1 ${
+            noMainPadding ? "p-0 sm:px-8 sm:py-6" : "px-4 sm:px-8 py-6"
+          } max-w-7xl mx-auto w-full flex flex-col min-h-0`}
+        >
           {children}
         </main>
       </div>
 
       {/* Mobile Bottom Quick Navigation Bar */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#0c1220]/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800/80 px-2 py-1.5 flex items-center justify-around">
-        {[
-          { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
-          { href: "/inbox", label: "Inbox", icon: MessageSquare },
-          { href: "/contacts", label: "Contacts", icon: Users },
-          { href: "/settings", label: "Settings", icon: Settings },
-        ].map((item) => {
-          const Icon = item.icon;
-          const isActive = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex flex-col items-center py-1 px-3 rounded-lg text-[10px] font-semibold transition-colors ${
-                isActive
-                  ? "text-indigo-600 dark:text-indigo-400"
-                  : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
-              }`}
-            >
-              <Icon className="w-4 h-4 mb-0.5" />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
-      </div>
+      {!hideMobileBottomNav && (
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#0c1220]/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800/80 px-2 py-1.5 flex items-center justify-around">
+          {[
+            { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
+            { href: "/inbox", label: "Inbox", icon: MessageSquare },
+            { href: "/contacts", label: "Contacts", icon: Users },
+            { href: "/settings", label: "Settings", icon: Settings },
+          ].map((item) => {
+            const Icon = item.icon;
+            const isActive = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex flex-col items-center py-1 px-3 rounded-lg text-[10px] font-semibold transition-colors ${
+                  isActive
+                    ? "text-[#5938F5] dark:text-indigo-400"
+                    : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                }`}
+              >
+                <Icon className="w-4 h-4 mb-0.5" />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

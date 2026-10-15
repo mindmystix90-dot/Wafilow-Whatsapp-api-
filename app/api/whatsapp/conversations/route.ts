@@ -1,11 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { validateEnvironment, WhatsAppEnvironment } from "@/lib/whatsapp";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
@@ -27,11 +28,24 @@ export async function GET() {
       return NextResponse.json({ success: true, conversations: [] });
     }
 
-    // Fetch contacts strictly for this customer's organization
+    const { searchParams } = new URL(req.url);
+    const rawEnv = searchParams.get("environment") || "production";
+    let environment: WhatsAppEnvironment = "production";
+    try {
+      environment = validateEnvironment(rawEnv);
+    } catch {
+      environment = "production";
+    }
+
+    // Fetch contacts strictly for this customer's organization and environment
     const contacts = await prisma.contact.findMany({
-      where: { organizationId: orgId },
+      where: {
+        organizationId: orgId,
+        environment,
+      },
       include: {
         messages: {
+          where: { environment },
           orderBy: { timestamp: "desc" },
           take: 1,
         },
@@ -40,6 +54,7 @@ export async function GET() {
             messages: {
               where: {
                 direction: "inbound",
+                environment,
                 status: { not: "read" },
               },
             },
@@ -53,7 +68,7 @@ export async function GET() {
       const latestMsg = c.messages[0];
       const tagsArray = c.tags
         ? c.tags.split(",").map((t) => t.trim()).filter(Boolean)
-        : ["WhatsApp"];
+        : [environment === "sandbox" ? "Sandbox Test" : "WhatsApp"];
 
       let formattedTime = "";
       if (latestMsg?.timestamp) {
@@ -71,18 +86,20 @@ export async function GET() {
         name: c.name || `+${c.phoneNumber}`,
         phone: c.phoneNumber.startsWith("+") ? c.phoneNumber : `+${c.phoneNumber}`,
         rawPhone: c.phoneNumber,
-        lastMessage: latestMsg?.content || "No messages yet",
+        lastMessage: latestMsg?.content || (environment === "sandbox" ? "Sandbox contact created" : "No messages yet"),
         lastMessageStatus: latestMsg?.status || "delivered",
         lastMessageDirection: latestMsg?.direction || "inbound",
         time: formattedTime,
         unread: c._count?.messages || 0,
         tags: tagsArray,
+        environment: c.environment,
         updatedAt: c.updatedAt,
       };
     });
 
     return NextResponse.json({
       success: true,
+      environment,
       conversations,
     });
   } catch (error: unknown) {

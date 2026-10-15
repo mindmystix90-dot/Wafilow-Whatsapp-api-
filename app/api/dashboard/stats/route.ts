@@ -1,20 +1,30 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getWhatsAppConfig } from "@/lib/whatsapp";
+import { getWhatsAppConnection, validateEnvironment, WhatsAppEnvironment } from "@/lib/whatsapp";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
     let orgId = session?.user?.organizationId;
 
+    const { searchParams } = new URL(req.url);
+    const rawEnv = searchParams.get("environment") || "production";
+    let environment: WhatsAppEnvironment = "production";
+    try {
+      environment = validateEnvironment(rawEnv);
+    } catch {
+      environment = "production";
+    }
+
     if (!session || !userId) {
       return NextResponse.json({
         success: true,
+        environment,
         stats: {
           totalMessages: 0,
           totalOutbound: 0,
@@ -36,6 +46,11 @@ export async function GET() {
           wabaId: "Not configured",
           hasAccessToken: false,
           verifyToken: "",
+          environment,
+        },
+        connections: {
+          production: { configured: false, status: "disconnected" },
+          sandbox: { configured: false, status: "disconnected" },
         },
       });
     }
@@ -51,6 +66,7 @@ export async function GET() {
     if (!orgId) {
       return NextResponse.json({
         success: true,
+        environment,
         stats: {
           totalMessages: 0,
           totalOutbound: 0,
@@ -72,19 +88,29 @@ export async function GET() {
           wabaId: "Not configured",
           hasAccessToken: false,
           verifyToken: "",
+          environment,
+        },
+        connections: {
+          production: { configured: false, status: "disconnected" },
+          sandbox: { configured: false, status: "disconnected" },
         },
       });
     }
 
-    const config = await getWhatsAppConfig(orgId);
+    const [prodConfig, sandConfig] = await Promise.all([
+      getWhatsAppConnection(orgId, "production"),
+      getWhatsAppConnection(orgId, "sandbox"),
+    ]);
+
+    const activeConfig = environment === "sandbox" ? sandConfig : prodConfig;
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const msgOrgFilter = { organizationId: orgId };
-    const contactOrgFilter = { organizationId: orgId };
+    const msgOrgFilter = { organizationId: orgId, environment };
+    const contactOrgFilter = { organizationId: orgId, environment };
 
-    // 1. Precise metrics from Prisma database
+    // 1. Precise metrics from Prisma database for this environment
     const [
       totalMessages,
       totalOutbound,
@@ -100,64 +126,68 @@ export async function GET() {
       prisma.message.count({ where: msgOrgFilter }).catch(() => 0),
       prisma.message.count({ where: { ...msgOrgFilter, direction: "outbound" } }).catch(() => 0),
       prisma.message.count({ where: { ...msgOrgFilter, direction: "inbound" } }).catch(() => 0),
-      prisma.message.count({
-        where: {
-          ...msgOrgFilter,
-          direction: "outbound",
-          status: { in: ["delivered", "read"] },
-        },
-      }).catch(() => 0),
+      prisma.message
+        .count({
+          where: {
+            ...msgOrgFilter,
+            direction: "outbound",
+            status: { in: ["delivered", "read"] },
+          },
+        })
+        .catch(() => 0),
       prisma.message.count({ where: { ...msgOrgFilter, status: "read" } }).catch(() => 0),
       prisma.contact.count({ where: contactOrgFilter }).catch(() => 0),
       prisma.contact.count({ where: { ...contactOrgFilter, status: "active" } }).catch(() => 0),
-      prisma.message.count({
-        where: {
-          ...msgOrgFilter,
-          direction: "outbound",
-          timestamp: { gte: todayStart },
-        },
-      }).catch(() => 0),
-      prisma.message.count({
-        where: {
-          ...msgOrgFilter,
-          direction: "outbound",
-          status: { in: ["delivered", "read"] },
-          timestamp: { gte: todayStart },
-        },
-      }).catch(() => 0),
-      prisma.contact.count({
-        where: {
-          ...contactOrgFilter,
-          messages: {
-            some: {},
+      prisma.message
+        .count({
+          where: {
+            ...msgOrgFilter,
+            direction: "outbound",
+            timestamp: { gte: todayStart },
           },
-        },
-      }).catch(() => 0),
+        })
+        .catch(() => 0),
+      prisma.message
+        .count({
+          where: {
+            ...msgOrgFilter,
+            direction: "outbound",
+            status: { in: ["delivered", "read"] },
+            timestamp: { gte: todayStart },
+          },
+        })
+        .catch(() => 0),
+      prisma.contact
+        .count({
+          where: {
+            ...contactOrgFilter,
+            messages: {
+              some: { environment },
+            },
+          },
+        })
+        .catch(() => 0),
     ]);
 
-    // Calculate delivery rate and read rate based on real DB records
     const deliveryRate =
-      totalOutbound > 0
-        ? Math.round((deliveredOutbound / totalOutbound) * 100)
-        : 0;
-
-    const readRate =
-      totalMessages > 0
-        ? Math.round((readMessages / totalMessages) * 100)
-        : 0;
+      totalOutbound > 0 ? Math.round((deliveredOutbound / totalOutbound) * 100) : 0;
+    const readRate = totalMessages > 0 ? Math.round((readMessages / totalMessages) * 100) : 0;
 
     // 2. Recent Active Customer Inquiries / Conversations from real DB
-    const recentContacts = await prisma.contact.findMany({
-      where: contactOrgFilter,
-      include: {
-        messages: {
-          orderBy: { timestamp: "desc" },
-          take: 1,
+    const recentContacts = await prisma.contact
+      .findMany({
+        where: contactOrgFilter,
+        include: {
+          messages: {
+            where: { environment },
+            orderBy: { timestamp: "desc" },
+            take: 1,
+          },
         },
-      },
-      orderBy: { updatedAt: "desc" },
-      take: 5,
-    }).catch(() => []);
+        orderBy: { updatedAt: "desc" },
+        take: 5,
+      })
+      .catch(() => []);
 
     const recentInquiries = recentContacts.map((c) => {
       const latestMsg = c.messages[0];
@@ -181,11 +211,13 @@ export async function GET() {
         status: latestMsg?.status || "delivered",
         time: formattedTime,
         unread: latestMsg?.direction === "inbound" && latestMsg?.status !== "read",
+        environment: c.environment,
       };
     });
 
     return NextResponse.json({
       success: true,
+      environment,
       stats: {
         totalMessages,
         totalOutbound,
@@ -202,19 +234,34 @@ export async function GET() {
       },
       recentInquiries,
       metaConfig: {
-        isConfigured: config.isConfigured,
-        phoneNumberId: config.phoneNumberId || "Not configured",
-        wabaId: config.wabaId || "Not configured",
-        hasAccessToken: Boolean(config.accessToken),
-        verifyToken: config.webhookVerifyToken,
+        isConfigured: activeConfig.isConfigured,
+        phoneNumberId: activeConfig.phoneNumberId || "Not configured",
+        wabaId: activeConfig.wabaId || "Not configured",
+        displayPhoneNumber: activeConfig.displayPhoneNumber,
+        verifiedName: activeConfig.verifiedName,
+        status: activeConfig.status,
+        hasAccessToken: Boolean(activeConfig.accessToken),
+        verifyToken: activeConfig.webhookVerifyToken,
+        environment,
+      },
+      connections: {
+        production: {
+          configured: prodConfig.isConfigured,
+          status: prodConfig.status,
+          displayPhoneNumber: prodConfig.displayPhoneNumber,
+          phoneNumberId: prodConfig.phoneNumberId,
+        },
+        sandbox: {
+          configured: sandConfig.isConfigured,
+          status: sandConfig.status,
+          displayPhoneNumber: sandConfig.displayPhoneNumber,
+          phoneNumberId: sandConfig.phoneNumberId,
+        },
       },
     });
   } catch (error: unknown) {
     const errorMsg = error instanceof Error ? error.message : "Error fetching stats";
     console.error("[Dashboard Stats Error]:", error);
-    return NextResponse.json(
-      { success: false, error: errorMsg },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: errorMsg }, { status: 500 });
   }
 }
