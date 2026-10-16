@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import AppLayout from "@/components/AppLayout";
 import {
-  Shield,
   Globe,
   Send,
   Check,
@@ -12,7 +11,6 @@ import {
   Loader2,
   CheckCircle2,
   RefreshCw,
-  ExternalLink,
   Info,
   Beaker,
   Building2,
@@ -117,52 +115,98 @@ export default function SettingsPage() {
         : `${window.location.origin}/api/webhook`
       : "https://wafilow-whatsapp-api.vercel.app/api/webhook";
 
-  // Load existing configuration for both environments
-  const loadConfigurations = async () => {
+  // Helper to populate connection state from API response
+  const applyConfigData = useCallback((data: {
+    verifyToken?: string;
+    appId?: string;
+    configId?: string;
+    production?: ConnectionDetails;
+    sandbox?: ConnectionDetails;
+  }) => {
+    if (data.verifyToken) setVerifyToken(data.verifyToken);
+    if (data.appId) setAppId(data.appId);
+    if (data.configId) setConfigId(data.configId);
+
+    // Populate Production
+    const prod: ConnectionDetails = data.production || {
+      configured: false,
+      status: "disconnected",
+      phoneNumberId: null,
+      wabaId: null,
+      displayPhoneNumber: null,
+      verifiedName: null,
+      hasAccessToken: false,
+      lastCheckedAt: null,
+    };
+    setIsProdConfigured(prod.configured || false);
+    setProdStatus(prod.status || (prod.configured ? "connected" : "disconnected"));
+    setProdPhoneId(prod.phoneNumberId || "");
+    setProdWabaId(prod.wabaId || "");
+    setProdDisplayPhone(prod.displayPhoneNumber || null);
+    setProdVerifiedName(prod.verifiedName || null);
+    setProdLastChecked(prod.lastCheckedAt || null);
+    if (prod.hasAccessToken) {
+      setProdToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
+    }
+
+    // Populate Sandbox
+    const sand: ConnectionDetails = data.sandbox || {
+      configured: false,
+      status: "disconnected",
+      phoneNumberId: null,
+      wabaId: null,
+      displayPhoneNumber: null,
+      verifiedName: null,
+      hasAccessToken: false,
+      lastCheckedAt: null,
+    };
+    setIsSandConfigured(sand.configured || false);
+    setSandStatus(sand.status || (sand.configured ? "connected" : "disconnected"));
+    setSandPhoneId(sand.phoneNumberId || "");
+    setSandWabaId(sand.wabaId || "");
+    setSandDisplayPhone(sand.displayPhoneNumber || null);
+    setSandVerifiedName(sand.verifiedName || null);
+    setSandLastChecked(sand.lastCheckedAt || null);
+    if (sand.hasAccessToken) {
+      setSandToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
+    }
+  }, []);
+
+  // Callable configuration reloader for manual refresh and post-save events
+  const loadConfigurations = useCallback(async () => {
     try {
       const res = await fetch("/api/whatsapp/config");
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
-          if (data.verifyToken) setVerifyToken(data.verifyToken);
-          if (data.appId) setAppId(data.appId);
-          if (data.configId) setConfigId(data.configId);
-
-          // Populate Production
-          const prod: ConnectionDetails = data.production || {};
-          setIsProdConfigured(prod.configured || false);
-          setProdStatus(prod.status || (prod.configured ? "connected" : "disconnected"));
-          setProdPhoneId(prod.phoneNumberId || "");
-          setProdWabaId(prod.wabaId || "");
-          setProdDisplayPhone(prod.displayPhoneNumber || null);
-          setProdVerifiedName(prod.verifiedName || null);
-          setProdLastChecked(prod.lastCheckedAt || null);
-          if (prod.hasAccessToken) {
-            setProdToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
-          }
-
-          // Populate Sandbox
-          const sand: ConnectionDetails = data.sandbox || {};
-          setIsSandConfigured(sand.configured || false);
-          setSandStatus(sand.status || (sand.configured ? "connected" : "disconnected"));
-          setSandPhoneId(sand.phoneNumberId || "");
-          setSandWabaId(sand.wabaId || "");
-          setSandDisplayPhone(sand.displayPhoneNumber || null);
-          setSandVerifiedName(sand.verifiedName || null);
-          setSandLastChecked(sand.lastCheckedAt || null);
-          if (sand.hasAccessToken) {
-            setSandToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
-          }
+          applyConfigData(data);
         }
       }
     } catch (err) {
       console.warn("Could not load WhatsApp config:", err);
     }
-  };
+  }, [applyConfigData]);
 
   useEffect(() => {
-    loadConfigurations();
-  }, []);
+    let ignore = false;
+    async function init() {
+      try {
+        const res = await fetch("/api/whatsapp/config");
+        if (res.ok) {
+          const data = await res.json();
+          if (!ignore && data.success) {
+            applyConfigData(data);
+          }
+        }
+      } catch (err) {
+        console.warn("Could not load WhatsApp config:", err);
+      }
+    }
+    init();
+    return () => {
+      ignore = true;
+    };
+  }, [applyConfigData]);
 
   // Launch Meta Embedded Signup for Production
   const handleLaunchEmbeddedSignup = async () => {
@@ -391,7 +435,10 @@ export default function SettingsPage() {
   };
 
   return (
-    <AppLayout>
+    <AppLayout
+      title="Settings"
+      subtitle="Manage WhatsApp Cloud API connections and Sandbox testing"
+    >
       <div className="max-w-6xl mx-auto space-y-8 pb-16">
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
@@ -508,11 +555,15 @@ export default function SettingsPage() {
               </div>
 
               {/* Active Connection Info */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-5">
                 <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
                   <div className="text-xs text-slate-500 dark:text-slate-400">Display Phone Number</div>
-                  <div className="text-sm font-semibold text-slate-900 dark:text-white mt-1">
-                    {prodDisplayPhone || (isProdConfigured ? "Connected" : "—")}
+                  <div className="text-sm font-semibold text-slate-900 dark:text-white mt-1 truncate">
+                    {prodDisplayPhone
+                      ? `${prodDisplayPhone}${prodVerifiedName ? ` (${prodVerifiedName})` : ""}`
+                      : isProdConfigured
+                      ? "Connected"
+                      : "—"}
                   </div>
                 </div>
 
@@ -528,6 +579,18 @@ export default function SettingsPage() {
                   <div className="text-sm font-mono text-slate-900 dark:text-white mt-1 truncate">
                     {prodWabaId || "—"}
                   </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Connection State</div>
+                  <div className="text-sm font-semibold capitalize text-slate-900 dark:text-white mt-1">
+                    {prodStatus}
+                  </div>
+                  {prodLastChecked && (
+                    <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                      {new Date(prodLastChecked).toLocaleDateString()}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -724,16 +787,59 @@ export default function SettingsPage() {
                   {isSandConfigured ? (
                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                      Sandbox Active
+                      Connected & Ready
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                       <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
-                      Setup Required
+                      Disconnected / Setup Required
                     </span>
                   )}
                 </div>
               </div>
+
+              {/* Active Sandbox Connection Info */}
+              {isSandConfigured ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-5">
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                    <div className="text-xs text-slate-500 dark:text-slate-400">Test Phone Number</div>
+                    <div className="text-sm font-semibold text-slate-900 dark:text-white mt-1 truncate">
+                      {sandDisplayPhone || (sandVerifiedName ? `${sandVerifiedName} (Test)` : "Meta Test Number Active")}
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                    <div className="text-xs text-slate-500 dark:text-slate-400">Sandbox Phone Number ID</div>
+                    <div className="text-sm font-mono text-slate-900 dark:text-white mt-1 truncate">
+                      {sandPhoneId || "—"}
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                    <div className="text-xs text-slate-500 dark:text-slate-400">Sandbox WABA ID</div>
+                    <div className="text-sm font-mono text-slate-900 dark:text-white mt-1 truncate">
+                      {sandWabaId || "—"}
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                    <div className="text-xs text-slate-500 dark:text-slate-400">Sandbox Status</div>
+                    <div className="text-sm font-semibold capitalize text-slate-900 dark:text-white mt-1">
+                      {sandStatus}
+                    </div>
+                    {sandLastChecked && (
+                      <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                        {new Date(sandLastChecked).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 flex items-center gap-2">
+                  <Info className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span>No sandbox connection exists yet. Enter your test credentials below and click <strong>Save Sandbox Connection</strong> to connect.</span>
+                </div>
+              )}
 
               {/* Instructions Guide */}
               <div className="mt-5 p-4 rounded-xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/50 space-y-3">
@@ -755,7 +861,7 @@ export default function SettingsPage() {
                     Copy the <strong>Temporary access token</strong> (note: Meta temporary tokens expire after 24 hours, or you can supply a System User token).
                   </li>
                   <li>
-                    Under the <strong>"To"</strong> dropdown in Meta console, add your personal phone number to the verified recipient whitelist (Meta sandbox only allows messaging pre-approved numbers).
+                    Under the <strong>&quot;To&quot;</strong> dropdown in Meta console, add your personal phone number to the verified recipient whitelist (Meta sandbox only allows messaging pre-approved numbers).
                   </li>
                 </ol>
               </div>
@@ -1025,7 +1131,7 @@ export default function SettingsPage() {
                 />
                 {testEnv === "sandbox" && (
                   <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
-                    * In Sandbox mode, recipient must be in your Meta Developer Console 'To' allowlist.
+                    * In Sandbox mode, recipient must be in your Meta Developer Console &apos;To&apos; allowlist.
                   </p>
                 )}
               </div>

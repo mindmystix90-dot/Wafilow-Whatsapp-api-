@@ -18,6 +18,7 @@ export default function ContactsPage() {
   const [contacts, setContacts] = useState<ContactItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [environment, setEnvironment] = useState<"production" | "sandbox">("production");
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newName, setNewName] = useState("");
@@ -26,9 +27,10 @@ export default function ContactsPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
-  const fetchContacts = async () => {
+  const fetchContacts = async (targetEnv: "production" | "sandbox" = environment) => {
     try {
-      const res = await fetch("/api/contacts");
+      setIsLoading(true);
+      const res = await fetch(`/api/contacts?environment=${targetEnv}`);
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
@@ -46,7 +48,8 @@ export default function ContactsPage() {
     let ignore = false;
     async function load() {
       try {
-        const res = await fetch("/api/contacts");
+        setIsLoading(true);
+        const res = await fetch(`/api/contacts?environment=${environment}`);
         if (res.ok) {
           const data = await res.json();
           if (!ignore && data.success) {
@@ -63,7 +66,7 @@ export default function ContactsPage() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [environment]);
 
   const handleAddContact = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,6 +83,7 @@ export default function ContactsPage() {
           name: newName,
           phone: newPhone,
           tags: newTags,
+          environment,
         }),
       });
 
@@ -91,7 +95,7 @@ export default function ContactsPage() {
         setNewName("");
         setNewPhone("");
         setNewTags("");
-        fetchContacts();
+        fetchContacts(environment);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Network error";
@@ -109,16 +113,45 @@ export default function ContactsPage() {
 
   return (
     <AppLayout
-      title="Contacts"
-      subtitle="Manage your customers and segments."
+      title="Contacts & Audiences"
+      subtitle={`Manage your verified WhatsApp recipients and customer segments (${environment.toUpperCase()}).`}
       action={
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-all shadow-xs cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Contact</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Environment Switcher */}
+          <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setEnvironment("production")}
+              className={`py-1.5 px-3 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer text-xs ${
+                environment === "production"
+                  ? "bg-white dark:bg-[#111827] text-[#5938F5] dark:text-violet-400 shadow-xs"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span>Production</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setEnvironment("sandbox")}
+              className={`py-1.5 px-3 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer text-xs ${
+                environment === "sandbox"
+                  ? "bg-amber-500 text-white shadow-xs"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+              }`}
+            >
+              <span>Sandbox Test</span>
+            </button>
+          </div>
+
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#5938F5] hover:bg-[#4d2ee0] text-white text-xs font-semibold transition-all shadow-xs cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Contact</span>
+          </button>
+        </div>
       }
     >
       <div className="space-y-4">
@@ -212,8 +245,8 @@ export default function ContactsPage() {
                       </td>
                       <td className="py-3.5 px-5 text-right">
                         <Link
-                          href={`/inbox?contactId=${c.id}`}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors"
+                          href={`/inbox?contactId=${c.id}&environment=${environment}`}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-[#5938F5]/10 hover:text-[#5938F5] dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors"
                         >
                           Chat
                         </Link>

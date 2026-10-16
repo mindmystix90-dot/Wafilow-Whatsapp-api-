@@ -72,6 +72,7 @@ function createOptimisticMessage(text: string): ChatMessage {
 function InboxContent() {
   const searchParams = useSearchParams();
   const contactIdParam = searchParams.get("contactId");
+  const envParam = searchParams.get("environment");
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(contactIdParam || null);
@@ -79,7 +80,9 @@ function InboxContent() {
   const [inputText, setInputText] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | "unread" | "assigned" | "starred" | "archived">("all");
-  const [environment, setEnvironment] = useState<"production" | "sandbox">("production");
+  const [environment, setEnvironment] = useState<"production" | "sandbox">(
+    envParam === "sandbox" ? "sandbox" : "production"
+  );
 
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -862,29 +865,29 @@ function InboxContent() {
 
               {/* 3. FIXED MESSAGE COMPOSER */}
               <div className="p-2.5 sm:p-3.5 border-t border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#111827] shrink-0 sticky bottom-0 z-20 pb-safe">
-                <div className="flex items-center justify-between text-[11px] px-1 pb-1.5 max-w-4xl mx-auto">
-                  <span
-                    className={
-                      environment === "sandbox"
-                        ? "text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1.5"
-                        : "text-slate-500 dark:text-slate-400 flex items-center gap-1.5"
-                    }
-                  >
+                <div className="flex items-center justify-between text-[11px] px-1 pb-2 max-w-4xl mx-auto">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 dark:text-slate-400 font-medium">Environment:</span>
                     {environment === "sandbox" ? (
-                      <Beaker className="w-3.5 h-3.5" />
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-bold text-[10px] bg-amber-500 text-white tracking-wide uppercase shadow-xs">
+                        <Beaker className="w-3 h-3" />
+                        SANDBOX
+                      </span>
                     ) : (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-bold text-[10px] bg-[#5938F5] text-white tracking-wide uppercase shadow-xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                        PRODUCTION
+                      </span>
                     )}
-                    Dispatching via:{" "}
-                    <strong className="font-semibold">
+                    <span className="text-slate-500 dark:text-slate-400 text-[11px] hidden sm:inline">
                       {environment === "sandbox"
-                        ? "Meta Sandbox Test Number"
-                        : "Verified Business Number"}
-                    </strong>
-                  </span>
+                        ? "• Sending via Meta Sandbox Test Number (Safe testing)"
+                        : "• Sending via Verified Business Number (Live customer)"}
+                    </span>
+                  </div>
                   <Link
                     href="/settings"
-                    className="text-[#5938F5] dark:text-violet-400 hover:underline text-[11px]"
+                    className="text-[#5938F5] dark:text-violet-400 hover:underline text-[11px] font-medium shrink-0 ml-2"
                   >
                     Manage Connections
                   </Link>

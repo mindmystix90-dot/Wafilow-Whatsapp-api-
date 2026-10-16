@@ -12,7 +12,6 @@ import {
   ExternalLink,
   Loader2,
   RefreshCw,
-  Smartphone,
   CheckCheck,
   AlertCircle,
   Beaker,
@@ -58,10 +57,6 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentInquiries, setRecentInquiries] = useState<RecentInquiry[]>([]);
   const [metaConfig, setMetaConfig] = useState<MetaConfigInfo | null>(null);
-  const [connections, setConnections] = useState<{
-    production?: { configured: boolean; status?: string; displayPhoneNumber?: string | null; phoneNumberId?: string | null };
-    sandbox?: { configured: boolean; status?: string; displayPhoneNumber?: string | null; phoneNumberId?: string | null };
-  } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchDashboardData = async () => {
@@ -74,7 +69,6 @@ export default function DashboardPage() {
           setStats(data.stats);
           setRecentInquiries(data.recentInquiries || []);
           setMetaConfig(data.metaConfig || null);
-          setConnections(data.connections || null);
         }
       }
     } catch (err) {
@@ -96,7 +90,6 @@ export default function DashboardPage() {
             setStats(data.stats);
             setRecentInquiries(data.recentInquiries || []);
             setMetaConfig(data.metaConfig || null);
-            setConnections(data.connections || null);
           }
         }
       } catch (err) {
