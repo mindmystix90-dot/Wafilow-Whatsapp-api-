@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import {
   Globe,
@@ -17,6 +18,12 @@ import {
   ChevronDown,
   ChevronUp,
   Sparkles,
+  KeyRound,
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  Lock,
+  X,
 } from "lucide-react";
 import { launchWhatsAppSignup } from "@/lib/facebook-sdk";
 
@@ -29,10 +36,22 @@ interface ConnectionDetails {
   verifiedName: string | null;
   hasAccessToken: boolean;
   lastCheckedAt: string | null;
+  lastError?: string | null;
+  isPendingRegistration?: boolean;
 }
 
-export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<"production" | "sandbox" | "webhook">("production");
+function SettingsContent() {
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const actionParam = searchParams.get("action");
+
+  const [activeTab, setActiveTab] = useState<"production" | "sandbox" | "webhook">(
+    actionParam === "register"
+      ? "production"
+      : tabParam === "sandbox" || tabParam === "webhook"
+      ? tabParam
+      : "production"
+  );
 
   // Production State
   const [prodPhoneId, setProdPhoneId] = useState("");
@@ -43,7 +62,17 @@ export default function SettingsPage() {
   const [isProdConfigured, setIsProdConfigured] = useState(false);
   const [prodStatus, setProdStatus] = useState("disconnected");
   const [prodLastChecked, setProdLastChecked] = useState<string | null>(null);
+  const [prodLastError, setProdLastError] = useState<string | null>(null);
+  const [prodIsPendingRegistration, setProdIsPendingRegistration] = useState(false);
   const [showProdAdvanced, setShowProdAdvanced] = useState(false);
+
+  // Cloud API Phone Registration State
+  const [showRegisterModal, setShowRegisterModal] = useState(actionParam === "register");
+  const [regPin, setRegPin] = useState("");
+  const [showRegPin, setShowRegPin] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [regSuccess, setRegSuccess] = useState<string | null>(null);
+  const [regError, setRegError] = useState<string | null>(null);
 
   // Sandbox State
   const [sandPhoneId, setSandPhoneId] = useState("");
@@ -145,6 +174,8 @@ export default function SettingsPage() {
     setProdDisplayPhone(prod.displayPhoneNumber || null);
     setProdVerifiedName(prod.verifiedName || null);
     setProdLastChecked(prod.lastCheckedAt || null);
+    setProdLastError(prod.lastError || null);
+    setProdIsPendingRegistration(Boolean(prod.isPendingRegistration));
     if (prod.hasAccessToken) {
       setProdToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
     }
@@ -351,11 +382,53 @@ export default function SettingsPage() {
           verificationStatus: data.phoneStatus?.codeVerificationStatus,
         },
       });
+
+      if (data.registrationRequired) {
+        setProdIsPendingRegistration(true);
+      }
+
       await loadConfigurations();
     } catch (err: unknown) {
       setProdDiagnosticError(err instanceof Error ? err.message : "Diagnostic check failed");
     } finally {
       setIsTestingProd(false);
+    }
+  };
+
+  // Submit Cloud API Phone Registration with 6-digit PIN
+  const handleRegisterPhone = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanPin = regPin.trim();
+    if (!/^\d{6}$/.test(cleanPin)) {
+      setRegError("PIN must be exactly 6 numeric digits.");
+      return;
+    }
+
+    setIsRegistering(true);
+    setRegError(null);
+    setRegSuccess(null);
+
+    try {
+      const res = await fetch("/api/whatsapp/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: cleanPin }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Meta registration failed. Please verify your 6-digit PIN and try again.");
+      }
+
+      setRegSuccess(data.message || "WhatsApp phone number successfully registered with Meta Cloud API!");
+      setRegPin("");
+      setProdIsPendingRegistration(false);
+      setProdLastError(null);
+      await loadConfigurations();
+    } catch (err: unknown) {
+      setRegError(err instanceof Error ? err.message : "Registration request failed.");
+    } finally {
+      setIsRegistering(false);
     }
   };
 
@@ -594,6 +667,37 @@ export default function SettingsPage() {
                 </div>
               </div>
 
+              {/* Action Required: Cloud API Registration Alert Banner */}
+              {(prodIsPendingRegistration || (prodLastError && (prodLastError.includes("133010") || prodLastError.toLowerCase().includes("registration")))) && (
+                <div className="mt-5 p-4 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-amber-200/60 dark:bg-amber-900/60 flex items-center justify-center shrink-0 mt-0.5">
+                      <KeyRound className="w-4 h-4 text-amber-700 dark:text-amber-300" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-amber-900 dark:text-amber-100 flex items-center gap-2">
+                        <span>Action Required: Phone Number Not Registered for Cloud API (Error 133010)</span>
+                      </div>
+                      <p className="text-amber-700 dark:text-amber-300 mt-0.5 leading-relaxed">
+                        Meta requires an explicit registration call with your 6-digit two-step verification PIN before this phone number can send or receive messages.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowRegisterModal(true);
+                      setRegSuccess(null);
+                      setRegError(null);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs transition-colors shrink-0 cursor-pointer shadow-xs"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    Register Phone Now
+                  </button>
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-3 mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
                 <button
@@ -608,6 +712,20 @@ export default function SettingsPage() {
                     <Sparkles className="w-3.5 h-3.5" />
                   )}
                   {isProdConfigured ? "Reconnect Meta Embedded Signup" : "Connect via Meta Embedded Signup"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRegisterModal(true);
+                    setRegSuccess(null);
+                    setRegError(null);
+                  }}
+                  disabled={!isProdConfigured}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-950/40 hover:bg-violet-100 dark:hover:bg-violet-900/40 text-[#5938F5] dark:text-violet-300 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  Register Phone for Cloud API
                 </button>
 
                 <button
@@ -633,6 +751,154 @@ export default function SettingsPage() {
                   {showProdAdvanced ? "Hide Manual Credentials" : "Edit Credentials Manually"}
                 </button>
               </div>
+
+              {/* Phone Number Registration Card (Meta Cloud API v24.0) */}
+              {showRegisterModal && (
+                <div className="mt-5 p-5 sm:p-6 rounded-2xl border-2 border-violet-400 dark:border-violet-600 bg-slate-50/50 dark:bg-slate-950/50 shadow-xs space-y-4">
+                  <div className="flex items-start justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-[#5938F5]/10 text-[#5938F5] flex items-center justify-center font-bold shrink-0">
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          Register Phone Number for Meta Cloud API (v24.0)
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300">
+                            Required Step
+                          </span>
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          Meta requires an explicit Cloud API registration with your 6-digit two-step verification PIN before this number can send or receive messages.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowRegisterModal(false);
+                        setRegError(null);
+                        setRegSuccess(null);
+                      }}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Selected Phone Context Display */}
+                  <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">Selected Phone Number:</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200">
+                        {prodDisplayPhone || "Registered WhatsApp Business Number"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">Phone Number ID:</span>
+                      <span className="font-mono text-slate-800 dark:text-slate-200">
+                        {prodPhoneId || "—"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">WABA ID:</span>
+                      <span className="font-mono text-slate-800 dark:text-slate-200">
+                        {prodWabaId || "—"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleRegisterPhone} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Two-Step Verification 6-Digit PIN
+                      </label>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2 leading-relaxed">
+                        Enter your 6-digit PIN. If you already created a PIN in Meta WhatsApp Manager (under Two-Step Verification), enter the same PIN. If you have not set one yet, this 6-digit PIN sets your Cloud API two-step verification code.
+                      </p>
+                      <div className="relative max-w-xs">
+                        <input
+                          type={showRegPin ? "text" : "password"}
+                          maxLength={6}
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          autoComplete="off"
+                          placeholder="••••••"
+                          value={regPin}
+                          onChange={(e) => {
+                            const digitsOnly = e.target.value.replace(/\D/g, "").slice(0, 6);
+                            setRegPin(digitsOnly);
+                          }}
+                          disabled={isRegistering}
+                          className="w-full tracking-widest text-center text-lg font-mono px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#5938F5]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowRegPin(!showRegPin)}
+                          tabIndex={-1}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                        >
+                          {showRegPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {regError && (
+                      <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 text-xs text-red-800 dark:text-red-200 flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                        <div className="leading-relaxed">
+                          <span className="font-semibold block">Registration Error</span>
+                          {regError}
+                        </div>
+                      </div>
+                    )}
+
+                    {regSuccess && (
+                      <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <div className="leading-relaxed">
+                          <span className="font-semibold block">Registration Successful</span>
+                          {regSuccess}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-3 pt-1">
+                      <button
+                        type="submit"
+                        disabled={regPin.length !== 6 || isRegistering || !isProdConfigured}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#5938F5] hover:bg-[#4d2ee0] text-white font-semibold text-xs transition-colors cursor-pointer disabled:opacity-40 shadow-xs"
+                      >
+                        {isRegistering ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Registering with Meta Cloud API...
+                          </>
+                        ) : (
+                          <>
+                            <Lock className="w-3.5 h-3.5" />
+                            Submit Registration PIN
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowRegisterModal(false);
+                          setRegError(null);
+                          setRegSuccess(null);
+                        }}
+                        disabled={isRegistering}
+                        className="px-4 py-2.5 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <div className="text-[11px] text-slate-400 ml-auto hidden sm:block">
+                        Meta rate limit: 10 requests / 72h.
+                      </div>
+                    </div>
+                  </form>
+                </div>
+              )}
 
               {signupSuccess && (
                 <div className="mt-4 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs flex items-center gap-2">
@@ -1173,5 +1439,22 @@ export default function SettingsPage() {
         </div>
       </div>
     </AppLayout>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center text-slate-500">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-5 h-5 animate-spin text-[#5938F5]" />
+            <span className="text-sm font-medium">Loading WhatsApp Settings...</span>
+          </div>
+        </div>
+      }
+    >
+      <SettingsContent />
+    </Suspense>
   );
 }

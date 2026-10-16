@@ -234,9 +234,9 @@ function InboxContent() {
         type: "registration",
         title: "Phone Number Registration Required",
         description:
-          "Meta reports that this WhatsApp phone number is not registered for Cloud API messaging. Complete two-step verification PIN registration in Meta WhatsApp Manager.",
-        actionLink: "/settings",
-        actionLabel: "Check WhatsApp Settings",
+          "Meta reports that this WhatsApp phone number has not completed Cloud API registration. Complete your 6-digit two-step verification PIN registration in Settings to enable messaging.",
+        actionLink: "/settings?tab=production&action=register",
+        actionLabel: "Register Phone in Settings",
       });
     } else if (errorCode === 131030 || errorType === "window_closed") {
       setConnectionNotice({

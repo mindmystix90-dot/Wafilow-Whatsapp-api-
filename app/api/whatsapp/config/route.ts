@@ -121,6 +121,11 @@ export async function GET(req: NextRequest) {
         verifiedName: prodConfig.verifiedName,
         hasAccessToken: Boolean(prodConfig.accessToken),
         lastCheckedAt: prodConfig.lastCheckedAt,
+        lastError: prodConfig.lastError || null,
+        isPendingRegistration: Boolean(
+          prodConfig.lastError?.includes("133010") ||
+          prodConfig.lastError?.toLowerCase().includes("registration")
+        ),
       },
       sandbox: {
         configured: sandConfig.isConfigured,

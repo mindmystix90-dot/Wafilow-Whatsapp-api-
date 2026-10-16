@@ -432,6 +432,9 @@ export async function testWhatsAppConnectionDiagnostic(
     accountReviewStatus?: string;
   };
   sandboxRestrictions?: string[];
+  isRegistered?: boolean;
+  registrationRequired?: boolean;
+  message?: string;
   error?: string;
   errorCode?: number;
 }> {
@@ -516,6 +519,14 @@ export async function testWhatsAppConnectionDiagnostic(
       }
     }
 
+    // Distinguish "credentials accessible" from "phone registered for Cloud API messaging"
+    const isRegistrationRequired = Boolean(
+      environment === "production" &&
+      (conn.lastError?.includes("133010") ||
+       conn.lastError?.toLowerCase().includes("registration required") ||
+       conn.lastError?.toLowerCase().includes("account not registered"))
+    );
+
     // Update connection status in DB
     try {
       await prisma.whatsAppConnection.update({
@@ -526,10 +537,10 @@ export async function testWhatsAppConnectionDiagnostic(
           },
         },
         data: {
-          status: "connected",
+          status: isRegistrationRequired ? "error" : "connected",
           displayPhoneNumber: phoneData.display_phone_number || conn.displayPhoneNumber,
           verifiedName: phoneData.verified_name || conn.verifiedName,
-          lastError: null,
+          ...(isRegistrationRequired ? {} : { lastError: null }),
           lastCheckedAt: new Date(),
         },
       });
@@ -545,9 +556,16 @@ export async function testWhatsAppConnectionDiagnostic(
           ]
         : undefined;
 
+    const diagnosticMessage = isRegistrationRequired
+      ? "Meta credentials and phone details are accessible, but Cloud API phone registration is required before sending messages. Please complete registration with your 6-digit PIN."
+      : `${environment === "sandbox" ? "Meta Sandbox" : "Production"} WhatsApp Cloud API verified successfully.`;
+
     return {
       success: true,
       environment,
+      isRegistered: !isRegistrationRequired,
+      registrationRequired: isRegistrationRequired,
+      message: diagnosticMessage,
       phoneStatus: {
         id: phoneData.id,
         displayPhoneNumber: phoneData.display_phone_number,
@@ -671,7 +689,7 @@ export async function sendWhatsAppMessage({
         userFriendlyMessage =
           environment === "sandbox"
             ? "Meta Error (Code 133010): Test Account not registered. For Sandbox, ensure your Meta Test Phone Number ID is copied from App -> WhatsApp -> API Setup."
-            : "Meta Error (Code 133010): Account not registered. This WhatsApp phone number has not completed Cloud API registration. Complete two-step verification PIN registration in Meta WhatsApp Manager.";
+            : "Meta Error (Code 133010): Account not registered. This WhatsApp phone number has not completed Cloud API registration. Complete two-step verification PIN registration in Settings.";
       } else if (code === 131030) {
         errorType = "window_closed";
         userFriendlyMessage =
@@ -711,6 +729,25 @@ export async function sendWhatsAppMessage({
         details: metaErr.error_data?.details,
       });
 
+      // If registration is required, persist error status in DB so UI immediately highlights registration
+      if (code === 133010 && organizationId) {
+        try {
+          await prisma.whatsAppConnection.update({
+            where: {
+              organizationId_environment: {
+                organizationId,
+                environment,
+              },
+            },
+            data: {
+              status: "error",
+              lastError: userFriendlyMessage,
+              lastCheckedAt: new Date(),
+            },
+          });
+        } catch {}
+      }
+
       return {
         success: false,
         error: userFriendlyMessage,
@@ -738,3 +775,142 @@ export async function sendWhatsAppMessage({
     };
   }
 }
+
+export interface RegisterWhatsAppResult {
+  success: boolean;
+  message?: string;
+  error?: string;
+  errorCode?: number;
+  errorSubcode?: number;
+}
+
+/**
+ * Registers a phone number for WhatsApp Cloud API messaging (v24.0).
+ * Dispatches POST https://graph.facebook.com/v24.0/{PHONE_NUMBER_ID}/register
+ *
+ * Strict Security & Safety:
+ * - Never logs, persists, caches, or exposes the 6-digit PIN or decrypted access token.
+ * - Enforces server-side resolution and validation.
+ * - Does not perform automatic retries (protecting the customer from Meta 72-hour lockout).
+ * - Updates database connection status only after Meta confirms registration success.
+ */
+export async function registerWhatsAppPhoneNumber({
+  organizationId,
+  pin,
+}: {
+  organizationId: string;
+  pin: string;
+}): Promise<RegisterWhatsAppResult> {
+  const cleanPin = typeof pin === "string" ? pin.trim() : "";
+  if (!cleanPin || !/^\d{6}$/.test(cleanPin)) {
+    return {
+      success: false,
+      error: "Two-step verification PIN must be exactly 6 numeric digits.",
+    };
+  }
+
+  const conn = await getWhatsAppConnection(organizationId, "production");
+  if (!conn.isConfigured || !conn.phoneNumberId || !conn.accessToken) {
+    return {
+      success: false,
+      error: "Production WhatsApp connection credentials are not configured. Please connect your account first.",
+    };
+  }
+
+  const apiVersion = "v24.0";
+  const endpoint = `https://graph.facebook.com/${apiVersion}/${conn.phoneNumberId}/register`;
+
+  console.log(`[WhatsApp Register] Submitting Cloud API registration for Phone ID ${conn.phoneNumberId} (Org: ${organizationId})`);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${conn.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        pin: cleanPin,
+      }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || data.error) {
+      const metaErr = data.error || {};
+      const code = typeof metaErr.code === "number" ? metaErr.code : undefined;
+      const subcode = metaErr.error_subcode;
+      let userMessage = metaErr.message || "Failed to register phone number with Meta Cloud API.";
+
+      if (code === 133005) {
+        userMessage =
+          "Two-step verification PIN mismatch. The entered 6-digit PIN does not match the PIN set for this phone number in Meta WhatsApp Manager.";
+      } else if (code === 133015) {
+        userMessage =
+          "Meta rate limit reached. Meta allows a maximum of 10 registration attempts per 72 hours for this phone number. Please wait before trying again.";
+      } else if (code === 190) {
+        userMessage =
+          "Meta Access Token is expired or invalid. Please update your token in WhatsApp Settings before registering.";
+      } else if (code === 200 || code === 10) {
+        userMessage =
+          "Missing Meta permissions. Ensure your token has 'whatsapp_business_messaging' and 'whatsapp_business_management' permissions.";
+      } else if (code === 100) {
+        userMessage =
+          "Invalid request format sent to Meta. Please verify phone number ID and try again.";
+      }
+
+      console.error("[WhatsApp Register Error]:", {
+        phoneId: conn.phoneNumberId,
+        status: response.status,
+        code,
+        subcode,
+        message: metaErr.message,
+      });
+
+      return {
+        success: false,
+        error: userMessage,
+        errorCode: code,
+        errorSubcode: subcode,
+      };
+    }
+
+    if (data.success === true) {
+      try {
+        await prisma.whatsAppConnection.update({
+          where: {
+            organizationId_environment: {
+              organizationId,
+              environment: "production",
+            },
+          },
+          data: {
+            status: "connected",
+            lastError: null,
+            lastCheckedAt: new Date(),
+          },
+        });
+      } catch (dbErr) {
+        console.warn("[WhatsApp Register] Non-critical DB status update error:", dbErr);
+      }
+
+      return {
+        success: true,
+        message: "WhatsApp phone number successfully registered with Meta Cloud API! You can now send and receive production messages.",
+      };
+    }
+
+    return {
+      success: false,
+      error: "Meta did not return a successful registration confirmation.",
+    };
+  } catch (networkErr: unknown) {
+    const errorMsg = networkErr instanceof Error ? networkErr.message : "Network error contacting Meta";
+    return {
+      success: false,
+      error: `Network error connecting to Meta Graph API: ${errorMsg}`,
+    };
+  }
+}
+
