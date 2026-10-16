@@ -77,21 +77,21 @@ model Organization {
 }
 
 model WhatsAppConnection {
-  id                 String       @id @default(cuid())
+  id                 String    @id @default(cuid())
   organizationId     String
-  environment        String       @default("production") // "production" | "sandbox"
+  environment        String    @default("production") // "production" | "sandbox"
   wabaId             String?
   phoneNumberId      String?
   displayPhoneNumber String?
   verifiedName       String?
-  accessToken        String?      // Encrypted using AES-256-GCM via lib/crypto.ts
-  status             String       @default("disconnected") // "connected" | "disconnected" | "error"
+  accessToken        String? // Encrypted using AES-256-GCM via lib/crypto.ts
+  status             String    @default("disconnected") // "connected" | "disconnected" | "error"
   lastCheckedAt      DateTime?
   lastError          String?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, environment])
   @@index([phoneNumberId])
@@ -110,14 +110,14 @@ model WhatsAppBusinessAccount {
 }
 
 model WhatsAppPhoneNumber {
-  id             String                   @id @default(cuid())
-  wabaAccountId  String?
-  phoneNumberId  String                   @unique
-  displayPhone   String?
-  verifiedName   String?
-  createdAt      DateTime                 @default(now())
-  updatedAt      DateTime                 @updatedAt
-  wabaAccount    WhatsAppBusinessAccount? @relation(fields: [wabaAccountId], references: [id], onDelete: Cascade)
+  id            String                   @id @default(cuid())
+  wabaAccountId String?
+  phoneNumberId String                   @unique
+  displayPhone  String?
+  verifiedName  String?
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  wabaAccount   WhatsAppBusinessAccount? @relation(fields: [wabaAccountId], references: [id], onDelete: Cascade)
 }
 
 model Contact {
@@ -134,21 +134,21 @@ model Contact {
   messages       Message[]
   conversations  Conversation[]
 
-  organization   Organization?  @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 }
 
 model Conversation {
-  id             String        @id @default(cuid())
+  id             String   @id @default(cuid())
   contactId      String
   organizationId String?
-  environment    String        @default("production") // "production" | "sandbox"
-  status         String        @default("open") // "open" | "closed"
-  lastMessageAt  DateTime      @default(now())
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  environment    String   @default("production") // "production" | "sandbox"
+  status         String   @default("open") // "open" | "closed"
+  lastMessageAt  DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  contact        Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  contact      Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 }
 
 model Template {
@@ -173,18 +173,18 @@ model Campaign {
 }
 
 model Message {
-  id             String        @id @default(cuid())
+  id             String   @id @default(cuid())
   contactId      String
   organizationId String?
-  environment    String        @default("production") // "production" | "sandbox"
-  wamId          String?       @unique
-  direction      String        // "inbound" | "outbound"
+  environment    String   @default("production") // "production" | "sandbox"
+  wamId          String?  @unique
+  direction      String // "inbound" | "outbound"
   content        String
-  type           String        @default("text")
-  status         String        @default("sent") // "sent" | "delivered" | "read" | "failed"
+  type           String   @default("text")
+  status         String   @default("sent") // "sent" | "delivered" | "read" | "failed"
   errorMessage   String?
-  timestamp      DateTime      @default(now())
+  timestamp      DateTime @default(now())
 
-  contact        Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  contact      Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 }
