@@ -1,9 +1,10 @@
 "use client";
 
-import { ReactNode, useState, useEffect } from "react";
+import { ReactNode, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
+import { useWhatsAppConnection } from "@/contexts/WhatsAppConnectionContext";
 import {
   MessageSquare,
   Users,
@@ -64,29 +65,8 @@ export default function AppLayout({
 }: AppLayoutProps) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
+  const { isConfigured, isLoading } = useWhatsAppConnection();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  useEffect(() => {
-    let ignore = false;
-    async function checkStatus() {
-      try {
-        const res = await fetch("/api/whatsapp/config");
-        if (res.ok) {
-          const data = await res.json();
-          if (!ignore) {
-            setIsConfigured(Boolean(data.configured));
-          }
-        }
-      } catch {
-        // Soft fail
-      }
-    }
-    checkStatus();
-    return () => {
-      ignore = true;
-    };
-  }, []);
 
   return (
     <div className="min-h-screen bg-slate-50/70 dark:bg-[#070b12] text-slate-900 dark:text-slate-100 flex flex-col lg:flex-row antialiased">
@@ -112,11 +92,19 @@ export default function AppLayout({
             >
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
-                  isConfigured ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+                  isConfigured === null && isLoading
+                    ? "bg-slate-400 animate-pulse"
+                    : isConfigured
+                    ? "bg-emerald-500 animate-pulse"
+                    : "bg-amber-500"
                 }`}
               />
               <span className="text-slate-600 dark:text-slate-300">
-                {isConfigured ? "Connected" : "Setup Required"}
+                {isConfigured === null && isLoading
+                  ? "Checking..."
+                  : isConfigured
+                  ? "Connected"
+                  : "Setup Required"}
               </span>
             </Link>
 
@@ -259,11 +247,19 @@ export default function AppLayout({
             <div className="flex items-center gap-2">
               <span
                 className={`w-2 h-2 rounded-full ${
-                  isConfigured ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" : "bg-amber-500"
+                  isConfigured === null && isLoading
+                    ? "bg-slate-400 animate-pulse"
+                    : isConfigured
+                    ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"
+                    : "bg-amber-500"
                 }`}
               />
               <span className="font-semibold text-slate-700 dark:text-slate-300">
-                {isConfigured ? "Cloud API Active" : "Meta Setup Required"}
+                {isConfigured === null && isLoading
+                  ? "Checking API..."
+                  : isConfigured
+                  ? "Cloud API Active"
+                  : "Meta Setup Required"}
               </span>
             </div>
             <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />

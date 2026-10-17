@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import AppLayout from "@/components/AppLayout";
+import { useWhatsAppConnection } from "@/contexts/WhatsAppConnectionContext";
 import {
   Globe,
   Send,
@@ -43,6 +44,7 @@ interface ConnectionDetails {
 }
 
 function SettingsContent() {
+  const { refresh: refreshGlobalStatus } = useWhatsAppConnection();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const actionParam = searchParams.get("action");
@@ -213,12 +215,13 @@ function SettingsContent() {
         const data = await res.json();
         if (data.success) {
           applyConfigData(data);
+          refreshGlobalStatus(true);
         }
       }
     } catch (err) {
       console.warn("Could not load WhatsApp config:", err);
     }
-  }, [applyConfigData]);
+  }, [applyConfigData, refreshGlobalStatus]);
 
   useEffect(() => {
     let ignore = false;
