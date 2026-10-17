@@ -46,5 +46,7 @@ export const config = {
     "/settings",
     "/settings/:path*",
     "/team/:path*",
+    "/profile",
+    "/profile/:path*",
   ],
 };

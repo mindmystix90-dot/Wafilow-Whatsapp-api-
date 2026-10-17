@@ -39,6 +39,7 @@ export const authOptions: NextAuthOptions = {
           id: user.id,
           name: user.name || normalizedEmail.split("@")[0],
           email: user.email,
+          image: user.image,
           role: user.role,
           organizationId: user.organizationId,
         };
@@ -53,20 +54,28 @@ export const authOptions: NextAuthOptions = {
     signIn: "/login",
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
         token.role = (user as { role?: string }).role;
         token.organizationId = (user as { organizationId?: string | null }).organizationId;
-      } else if (token.id && !token.organizationId) {
+        token.picture = user.image || null;
+      }
+      if (trigger === "update" && session) {
+        if (session.image !== undefined) token.picture = session.image;
+        if (session.name !== undefined) token.name = session.name;
+      }
+      if (token.id) {
         try {
           const dbUser = await prisma.user.findUnique({
             where: { id: token.id as string },
-            select: { organizationId: true, role: true },
+            select: { organizationId: true, role: true, image: true, name: true },
           });
-          if (dbUser?.organizationId) {
-            token.organizationId = dbUser.organizationId;
+          if (dbUser) {
+            if (dbUser.organizationId) token.organizationId = dbUser.organizationId;
             if (dbUser.role) token.role = dbUser.role;
+            if (dbUser.image !== undefined) token.picture = dbUser.image;
+            if (dbUser.name) token.name = dbUser.name;
           }
         } catch {
           // Graceful fallback
@@ -79,6 +88,10 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.id as string;
         session.user.role = token.role as string;
         session.user.organizationId = (token.organizationId as string | null) || null;
+        session.user.image = (token.picture as string | null) || null;
+        if (token.name) {
+          session.user.name = token.name as string;
+        }
       }
       return session;
     },

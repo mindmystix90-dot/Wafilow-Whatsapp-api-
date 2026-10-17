@@ -18,6 +18,7 @@ import {
   X,
   ExternalLink,
   Layers,
+  User,
 } from "lucide-react";
 
 interface AppLayoutProps {
@@ -49,6 +50,7 @@ const navItems: NavItem[] = [
   { href: "/analytics", label: "Analytics", icon: BarChart3, section: "engagement" },
   { href: "/team", label: "Team", icon: UserCheck, section: "system" },
   { href: "/settings", label: "Settings", icon: Settings, section: "system" },
+  { href: "/profile", label: "Profile", icon: User, section: "system" },
 ];
 
 export default function AppLayout({
@@ -117,6 +119,24 @@ export default function AppLayout({
                 {isConfigured ? "Connected" : "Setup Required"}
               </span>
             </Link>
+
+            <Link
+              href="/profile"
+              title="User Profile"
+              className="w-8 h-8 rounded-lg overflow-hidden bg-gradient-to-tr from-slate-900 to-indigo-600 text-white font-bold text-xs flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700"
+            >
+              {session?.user?.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={session.user.image}
+                  alt={session.user.name || "Profile"}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                (session?.user?.name || session?.user?.email || "U").charAt(0).toUpperCase()
+              )}
+            </Link>
+
             <button
               type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -170,18 +190,36 @@ export default function AppLayout({
 
             {session?.user && (
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <div className="text-xs">
-                  <div className="font-semibold text-slate-900 dark:text-white">
-                    {session.user.name || session.user.email}
+                <Link
+                  href="/profile"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-2.5 overflow-hidden group min-w-0"
+                >
+                  <div className="w-9 h-9 rounded-xl overflow-hidden bg-gradient-to-tr from-slate-900 to-indigo-600 text-white font-bold text-xs flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700">
+                    {session.user.image ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={session.user.image}
+                        alt={session.user.name || "User Avatar"}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      (session.user.name || session.user.email || "U").charAt(0).toUpperCase()
+                    )}
                   </div>
-                  <div className="text-[11px] text-slate-500 truncate max-w-[200px]">
-                    {session.user.email}
+                  <div className="text-xs text-left min-w-0">
+                    <div className="font-semibold text-slate-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                      {session.user.name || session.user.email}
+                    </div>
+                    <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
+                      Edit Profile & Photo →
+                    </div>
                   </div>
-                </div>
+                </Link>
                 <button
                   type="button"
                   onClick={() => signOut({ callbackUrl: "/login" })}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-rose-600 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 transition-colors flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-rose-600 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 transition-colors flex items-center gap-1.5 shrink-0 ml-2"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   Sign Out
@@ -360,25 +398,38 @@ export default function AppLayout({
 
         {/* User Profile Card at bottom of sidebar */}
         <div className="pt-4 border-t border-slate-200/80 dark:border-slate-800/80">
-          <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80">
-            <div className="flex items-center gap-2.5 overflow-hidden">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-slate-900 to-indigo-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
-                {(session?.user?.name || session?.user?.email || "U").charAt(0).toUpperCase()}
+          <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80 group">
+            <Link
+              href="/profile"
+              className="flex items-center gap-2.5 overflow-hidden flex-1 min-w-0"
+              title="View and edit profile"
+            >
+              <div className="w-8 h-8 rounded-lg overflow-hidden bg-gradient-to-tr from-slate-900 to-indigo-600 text-white font-bold text-xs flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700">
+                {session?.user?.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={session.user.image}
+                    alt={session.user.name || "User Avatar"}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  (session?.user?.name || session?.user?.email || "U").charAt(0).toUpperCase()
+                )}
               </div>
-              <div className="overflow-hidden">
-                <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+              <div className="overflow-hidden min-w-0">
+                <div className="text-xs font-bold text-slate-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
                   {session?.user?.name || session?.user?.email?.split("@")[0] || "User"}
                 </div>
                 <div className="text-[10px] text-slate-400 truncate">
-                  {session?.user?.email || "Authenticated"}
+                  Edit Profile & Photo
                 </div>
               </div>
-            </div>
+            </Link>
             <button
               type="button"
               onClick={() => signOut({ callbackUrl: "/login" })}
               title="Sign Out"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors shrink-0 ml-1.5"
             >
               <LogOut className="w-4 h-4" />
             </button>

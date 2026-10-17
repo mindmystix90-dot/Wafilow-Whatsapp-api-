@@ -79,7 +79,8 @@ function LoginForm() {
           <input
             type="email"
             required
-            placeholder="orion@example.com"
+            autoComplete="email"
+            placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-900/60 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
@@ -93,7 +94,13 @@ function LoginForm() {
             </label>
             <button
               type="button"
-              onClick={() => alert("Password reset link will be sent to your email if an account exists.")}
+              onClick={() => {
+                try {
+                  alert("Password reset link will be sent to your email if an account exists.");
+                } catch {
+                  // Fallback for sandboxed environments
+                }
+              }}
               className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
             >
               Forgot password?
@@ -103,6 +110,7 @@ function LoginForm() {
             <input
               type={showPassword ? "text" : "password"}
               required
+              autoComplete="current-password"
               placeholder="••••••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -152,7 +160,13 @@ function LoginForm() {
       <div className="space-y-2.5">
         <button
           type="button"
-          onClick={() => alert("Google OAuth login will be initiated.")}
+          onClick={() => {
+            try {
+              alert("Google OAuth login will be initiated.");
+            } catch {
+              // Fallback for sandboxed environments
+            }
+          }}
           className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/60 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center justify-center gap-2.5 transition-all shadow-xs cursor-pointer"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -178,7 +192,13 @@ function LoginForm() {
 
         <button
           type="button"
-          onClick={() => alert("Meta Facebook login will be initiated.")}
+          onClick={() => {
+            try {
+              alert("Meta Facebook login will be initiated.");
+            } catch {
+              // Fallback for sandboxed environments
+            }
+          }}
           className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/60 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center justify-center gap-2.5 transition-all shadow-xs cursor-pointer"
         >
           <svg className="w-4 h-4 text-[#0866FF] fill-current" viewBox="0 0 24 24">
