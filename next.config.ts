@@ -24,6 +24,10 @@ const nextConfig: NextConfig = {
         source: "/uploads/avatars/:filename",
         destination: "/api/user/avatar/:filename",
       },
+      {
+        source: "/api/super-admin/:path*",
+        destination: "/api/admin/:path*",
+      },
     ];
   },
   typescript: {

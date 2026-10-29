@@ -7,8 +7,7 @@ import {
   WhatsAppEnvironment,
 } from "@/lib/whatsapp";
 import { prisma } from "@/lib/prisma";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -18,21 +17,9 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
-    let orgId = session?.user?.organizationId;
+    const sessionUser = await requireActiveUserSession();
+    const orgId = sessionUser.organizationId;
 
-    if (!session || !userId) {
-      return NextResponse.json({ success: false, error: "Unauthorized", messages: [] }, { status: 401 });
-    }
-
-    if (!orgId) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { organizationId: true },
-      });
-      orgId = user?.organizationId || null;
-    }
 
     const { searchParams } = new URL(req.url);
     const contactId = searchParams.get("contactId");
@@ -98,12 +85,7 @@ export async function GET(req: NextRequest) {
       messages: formattedMessages,
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Database query error";
-    console.error("[Get Messages Error]:", error);
-    return NextResponse.json(
-      { success: false, error: `Failed to fetch messages: ${errorMsg}`, messages: [] },
-      { status: 500 }
-    );
+    return handleAuthError(error);
   }
 }
 
@@ -114,31 +96,9 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
-    let sessionOrgId = session?.user?.organizationId;
+    const sessionUser = await requireActiveUserSession();
+    const sessionOrgId = sessionUser.organizationId;
 
-    if (!session || !userId) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized. Please sign in to send messages." },
-        { status: 401 }
-      );
-    }
-
-    if (!sessionOrgId) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { organizationId: true },
-      });
-      sessionOrgId = user?.organizationId || null;
-    }
-
-    if (!sessionOrgId) {
-      return NextResponse.json(
-        { success: false, error: "No organization workspace associated with your account." },
-        { status: 400 }
-      );
-    }
 
     const body = await req.json().catch(() => ({}));
     const { contactId, text, to, environment: rawEnv = "production" } = body;
@@ -221,7 +181,7 @@ export async function POST(req: NextRequest) {
       to: contact.phoneNumber,
       type: "text",
       text: text.trim(),
-      organizationId: contact.organizationId || undefined,
+      organizationId: sessionOrgId,
       environment,
     });
 
@@ -230,7 +190,7 @@ export async function POST(req: NextRequest) {
       const failedMsg = await prisma.message.create({
         data: {
           contactId: contact.id,
-          organizationId: contact.organizationId || config.organizationId,
+          organizationId: sessionOrgId,
           environment,
           direction: "outbound",
           content: text.trim(),
@@ -239,6 +199,13 @@ export async function POST(req: NextRequest) {
           errorMessage: sendResult.error,
         },
       });
+
+      const errorStatusCode =
+        sendResult.errorType === "quota_exceeded"
+          ? 429
+          : sendResult.errorType === "suspended"
+          ? 403
+          : 400;
 
       return NextResponse.json(
         {
@@ -258,7 +225,7 @@ export async function POST(req: NextRequest) {
             environment,
           },
         },
-        { status: 400 }
+        { status: errorStatusCode }
       );
     }
 
@@ -266,7 +233,7 @@ export async function POST(req: NextRequest) {
     const savedMsg = await prisma.message.create({
       data: {
         contactId: contact.id,
-        organizationId: contact.organizationId || config.organizationId,
+        organizationId: sessionOrgId,
         environment,
         wamId: sendResult.messageId,
         direction: "outbound",
@@ -282,7 +249,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Keep Conversation record in sync
-    const orgId = contact.organizationId || config.organizationId;
+    const orgId = sessionOrgId;
     const existingConv = await prisma.conversation.findFirst({
       where: { contactId: contact.id, organizationId: orgId, environment },
     });
@@ -320,11 +287,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Internal server error";
-    console.error("[Send Message Route Error]:", error);
-    return NextResponse.json(
-      { success: false, error: `Failed to dispatch message: ${errorMsg}` },
-      { status: 500 }
-    );
+    return handleAuthError(error);
   }
 }
+

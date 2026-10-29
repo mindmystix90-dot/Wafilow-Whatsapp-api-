@@ -1,6 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveOrganizationAndConnectionForWebhook } from "@/lib/whatsapp";
+import crypto from "crypto";
+
+export function verifyMetaSignature(
+  rawBody: string,
+  signatureHeader: string | null,
+  appSecret?: string
+): boolean {
+  if (!appSecret || appSecret.trim() === "") {
+    return true; // Pass through if app secret not configured in local/dev environment
+  }
+  if (!signatureHeader || !signatureHeader.startsWith("sha256=")) {
+    return false;
+  }
+  const signature = signatureHeader.substring(7);
+  const expectedSignature = crypto
+    .createHmac("sha256", appSecret.trim())
+    .update(rawBody)
+    .digest("hex");
+  try {
+    const sigBuf = Buffer.from(signature, "hex");
+    const expBuf = Buffer.from(expectedSignature, "hex");
+    if (sigBuf.length !== expBuf.length) return false;
+    return crypto.timingSafeEqual(sigBuf, expBuf);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Meta WhatsApp Webhook Verification (GET)
@@ -90,6 +117,13 @@ export async function POST(req: NextRequest) {
     const rawBody = await req.text();
     if (!rawBody) {
       return NextResponse.json({ status: "empty_payload" }, { status: 200 });
+    }
+
+    const appSecret = process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET;
+    const signature = req.headers.get("x-hub-signature-256");
+    if (!verifyMetaSignature(rawBody, signature, appSecret)) {
+      console.warn("[Meta Webhook] Invalid or missing X-Hub-Signature-256 header. Rejecting.");
+      return new NextResponse("Unauthorized: Invalid Webhook Signature", { status: 401 });
     }
 
     const body = JSON.parse(rawBody);

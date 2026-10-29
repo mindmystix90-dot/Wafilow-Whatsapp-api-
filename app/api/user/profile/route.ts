@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -12,20 +11,8 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   try {
-    let session = null;
-    try {
-      session = await getServerSession(authOptions);
-    } catch {
-      session = null;
-    }
-    const userId = session?.user?.id;
-
-    if (!session || !userId) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized. Please sign in." },
-        { status: 401 }
-      );
-    }
+    const sessionUser = await requireActiveUserSession();
+    const userId = sessionUser.userId;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -67,11 +54,7 @@ export async function GET() {
       },
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Internal error";
-    return NextResponse.json(
-      { success: false, error: `Failed to load profile: ${errorMsg}` },
-      { status: 500 }
-    );
+    return handleAuthError(error);
   }
 }
 
@@ -82,20 +65,8 @@ export async function GET() {
  */
 export async function PATCH(req: NextRequest) {
   try {
-    let session = null;
-    try {
-      session = await getServerSession(authOptions);
-    } catch {
-      session = null;
-    }
-    const userId = session?.user?.id;
-
-    if (!session || !userId) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized. Please sign in." },
-        { status: 401 }
-      );
-    }
+    const sessionUser = await requireActiveUserSession();
+    const userId = sessionUser.userId;
 
     const body = await req.json().catch(() => ({}));
     const { name } = body;
@@ -129,10 +100,7 @@ export async function PATCH(req: NextRequest) {
       user: updatedUser,
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Internal error";
-    return NextResponse.json(
-      { success: false, error: `Failed to update profile: ${errorMsg}` },
-      { status: 500 }
-    );
+    return handleAuthError(error);
   }
 }
+

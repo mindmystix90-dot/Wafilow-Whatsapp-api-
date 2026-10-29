@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { decryptToken, encryptToken } from "@/lib/crypto";
+import { checkOrganizationQuota, acquireQuotaReservation } from "@/lib/quota";
 
 export type WhatsAppEnvironment = "production" | "sandbox";
 
@@ -401,7 +402,7 @@ export interface SendWhatsAppResult {
   messageId?: string;
   error?: string;
   errorCode?: number;
-  errorType?: "registration" | "window_closed" | "token_expired" | "undeliverable" | "permission" | "general" | "sandbox_recipient";
+  errorType?: "registration" | "window_closed" | "token_expired" | "undeliverable" | "permission" | "general" | "sandbox_recipient" | "quota_exceeded" | "suspended";
   rawMetaError?: unknown;
   status?: number;
   environment?: WhatsAppEnvironment;
@@ -628,6 +629,20 @@ export async function sendWhatsAppMessage({
     };
   }
 
+  // Pre-dispatch organization active status and quota enforcement
+  let quotaReservation: { release: () => void } | null = null;
+  if (organizationId) {
+    const quotaResult = await checkOrganizationQuota(organizationId);
+    if (!quotaResult.allowed) {
+      return {
+        success: false,
+        error: quotaResult.error || "Message dispatch blocked by quota or organization policy.",
+        errorType: quotaResult.reason === "QUOTA_EXCEEDED" ? "quota_exceeded" : "suspended",
+        environment,
+      };
+    }
+  }
+
   let payload: Record<string, unknown>;
   if (type === "template") {
     payload = {
@@ -664,6 +679,10 @@ export async function sendWhatsAppMessage({
   }
 
   const endpoint = `https://graph.facebook.com/v24.0/${config.phoneNumberId}/messages`;
+
+  if (organizationId) {
+    quotaReservation = acquireQuotaReservation(organizationId);
+  }
 
   try {
     const response = await fetch(endpoint, {
@@ -773,6 +792,8 @@ export async function sendWhatsAppMessage({
       error: `Network error reaching Meta Cloud API: ${errorMsg}`,
       environment,
     };
+  } finally {
+    quotaReservation?.release();
   }
 }
 

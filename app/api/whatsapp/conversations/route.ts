@@ -1,32 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { validateEnvironment, WhatsAppEnvironment } from "@/lib/whatsapp";
+import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
-    let orgId = session?.user?.organizationId;
-
-    if (!session || !userId) {
-      return NextResponse.json({ success: true, conversations: [] });
-    }
-
-    if (!orgId) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { organizationId: true },
-      });
-      orgId = user?.organizationId || null;
-    }
-
-    if (!orgId) {
-      return NextResponse.json({ success: true, conversations: [] });
-    }
+    const sessionUser = await requireActiveUserSession();
+    const orgId = sessionUser.organizationId;
 
     const { searchParams } = new URL(req.url);
     const rawEnv = searchParams.get("environment") || "production";
@@ -103,11 +85,7 @@ export async function GET(req: NextRequest) {
       conversations,
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Database query error";
-    console.error("[Get Conversations Error]:", error);
-    return NextResponse.json(
-      { success: false, error: `Failed to fetch conversations: ${errorMsg}`, conversations: [] },
-      { status: 500 }
-    );
+    return handleAuthError(error);
   }
 }
+

@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { getWhatsAppConfig } from "@/lib/whatsapp";
 import { maskSecret } from "@/lib/env";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -13,18 +12,8 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
-    const orgId = session?.user?.organizationId;
-
-    if (!orgId) {
-      return NextResponse.json({
-        configured: false,
-        phoneNumberId: null,
-        wabaId: null,
-        accessTokenConfigured: false,
-        apiVersion: "v24.0",
-      });
-    }
+    const sessionUser = await requireActiveUserSession();
+    const orgId = sessionUser.organizationId;
 
     const config = await getWhatsAppConfig(orgId);
 
@@ -36,15 +25,7 @@ export async function GET() {
       apiVersion: "v24.0",
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Error checking config status";
-    console.error("[WhatsApp Config Status GET Error]:", error);
-    return NextResponse.json(
-      {
-        configured: false,
-        accessTokenConfigured: false,
-        error: errorMsg,
-      },
-      { status: 500 }
-    );
+    return handleAuthError(error);
   }
 }
+

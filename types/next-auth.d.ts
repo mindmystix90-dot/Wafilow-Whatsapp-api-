@@ -9,6 +9,8 @@ declare module "next-auth" {
       image?: string | null;
       role?: string;
       organizationId?: string | null;
+      sessionVersion?: number;
+      status?: string;
     };
   }
 
@@ -19,6 +21,8 @@ declare module "next-auth" {
     image?: string | null;
     role?: string;
     organizationId?: string | null;
+    sessionVersion?: number;
+    status?: string;
   }
 }
 
@@ -28,5 +32,8 @@ declare module "next-auth/jwt" {
     role?: string;
     organizationId?: string | null;
     picture?: string | null;
+    sessionVersion?: number;
+    status?: string;
+    revoked?: boolean;
   }
 }

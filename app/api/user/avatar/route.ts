@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
 import {
   uploadAvatar,
   deleteAvatar,
@@ -17,11 +16,16 @@ export const dynamic = "force-dynamic";
  * Returns storage configuration health and active provider status
  */
 export async function GET() {
-  const health = getStorageHealth();
-  return NextResponse.json({
-    success: true,
-    storage: health,
-  });
+  try {
+    await requireActiveUserSession();
+    const health = getStorageHealth();
+    return NextResponse.json({
+      success: true,
+      storage: health,
+    });
+  } catch (error: unknown) {
+    return handleAuthError(error);
+  }
 }
 
 /**
@@ -32,20 +36,9 @@ export async function GET() {
  */
 export async function POST(req: NextRequest) {
   try {
-    let session = null;
-    try {
-      session = await getServerSession(authOptions);
-    } catch {
-      session = null;
-    }
-    const userId = session?.user?.id;
+    const sessionUser = await requireActiveUserSession();
+    const userId = sessionUser.userId;
 
-    if (!session || !userId) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized. Please sign in to update your profile photo." },
-        { status: 401 }
-      );
-    }
 
     const contentType = req.headers.get("content-type") || "";
     let fileBuffer: Buffer | null = null;
@@ -156,12 +149,7 @@ export async function POST(req: NextRequest) {
       message: "Profile photo uploaded and updated successfully.",
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Internal error";
-    console.error("[Avatar Upload Error]:", error);
-    return NextResponse.json(
-      { success: false, error: `Failed to upload profile photo: ${errorMsg}` },
-      { status: 500 }
-    );
+    return handleAuthError(error);
   }
 }
 
@@ -171,20 +159,8 @@ export async function POST(req: NextRequest) {
  */
 export async function DELETE() {
   try {
-    let session = null;
-    try {
-      session = await getServerSession(authOptions);
-    } catch {
-      session = null;
-    }
-    const userId = session?.user?.id;
-
-    if (!session || !userId) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized. Please sign in." },
-        { status: 401 }
-      );
-    }
+    const sessionUser = await requireActiveUserSession();
+    const userId = sessionUser.userId;
 
     const currentUser = await prisma.user.findUnique({
       where: { id: userId },
@@ -205,10 +181,7 @@ export async function DELETE() {
       message: "Profile photo removed successfully.",
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Internal error";
-    return NextResponse.json(
-      { success: false, error: `Failed to remove profile photo: ${errorMsg}` },
-      { status: 500 }
-    );
+    return handleAuthError(error);
   }
 }
+

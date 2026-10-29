@@ -35,19 +35,26 @@ model Session {
 }
 
 model User {
-  id             String        @id @default(cuid())
-  name           String?
-  email          String?       @unique
-  emailVerified  DateTime?
-  image          String?
-  password       String?
-  role           String        @default("user")
-  organizationId String?
-  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  accounts       Account[]
-  sessions       Session[]
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  id                  String               @id @default(cuid())
+  name                String?
+  email               String?              @unique
+  emailVerified       DateTime?
+  image               String?
+  password            String?
+  role                String               @default("user")
+  status              String               @default("active")
+  sessionVersion      Int                  @default(1)
+  organizationId      String?
+  organization        Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  accounts            Account[]
+  sessions            Session[]
+  passwordResetTokens PasswordResetToken[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@index([status])
+  @@index([role, status])
+  @@index([organizationId])
 }
 
 model VerificationToken {
@@ -61,6 +68,9 @@ model VerificationToken {
 model Organization {
   id                  String                    @id @default(cuid())
   name                String                    @default("Default Organization")
+  status              String                    @default("active") // "active" | "suspended"
+  planTier            String                    @default("starter") // "free" | "starter" | "growth" | "pro" | "enterprise"
+  monthlyLimit        Int?                      // Custom override limit. If null, defaults to PLAN_LIMITS[planTier]
   wabaId              String?                   @unique
   phoneNumberId       String?                   @unique
   displayPhoneNumber  String?
@@ -74,6 +84,9 @@ model Organization {
   messages            Message[]
   wabaAccounts        WhatsAppBusinessAccount[]
   whatsappConnections WhatsAppConnection[]
+
+  @@index([status])
+  @@index([planTier])
 }
 
 model WhatsAppConnection {
@@ -188,3 +201,35 @@ model Message {
   contact      Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 }
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actorEmail String
+  action     String   // e.g. "USER_STATUS_CHANGE", "ORGANIZATION_STATUS_CHANGE", "QUOTA_OVERRIDE_UPDATE"
+  targetType String   // "USER" | "ORGANIZATION" | "QUOTA" | "SUBSCRIPTION" | "SYSTEM"
+  targetId   String
+  details    String?  // JSON stringified payload
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt(sort: Desc)])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique // SHA-256 hash of plaintext token
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+

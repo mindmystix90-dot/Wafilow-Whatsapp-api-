@@ -6,8 +6,7 @@ import {
   WhatsAppEnvironment,
 } from "@/lib/whatsapp";
 import { prisma } from "@/lib/prisma";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -27,17 +26,9 @@ class ConflictError extends Error {
  */
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
-    let orgId = session?.user?.organizationId;
+    const sessionUser = await requireActiveUserSession();
+    const orgId = sessionUser.organizationId;
 
-    if (userId && !orgId) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { organizationId: true },
-      });
-      orgId = user?.organizationId || null;
-    }
 
     const { searchParams } = new URL(req.url);
     const requestedEnv = searchParams.get("environment") || "production";
@@ -142,9 +133,7 @@ export async function GET(req: NextRequest) {
       webhookUrl,
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Error reading config";
-    console.error("[WhatsApp Config GET Error]:", error);
-    return NextResponse.json({ success: false, error: errorMsg }, { status: 500 });
+    return handleAuthError(error);
   }
 }
 
@@ -155,37 +144,8 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
-    let userOrgId = session?.user?.organizationId;
-
-    if (!session || !userId) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized. You must be signed in to configure WhatsApp credentials." },
-        { status: 401 }
-      );
-    }
-
-    if (!userOrgId) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        include: { organization: true },
-      });
-      userOrgId = user?.organizationId || null;
-      if (!userOrgId) {
-        const createdOrg = await prisma.organization.create({
-          data: {
-            name: `${user?.name || "Customer"}'s Workspace`,
-            webhookVerifyToken: `wafilow_${Math.random().toString(36).substring(2, 12)}`,
-          },
-        });
-        await prisma.user.update({
-          where: { id: userId },
-          data: { organizationId: createdOrg.id },
-        });
-        userOrgId = createdOrg.id;
-      }
-    }
+    const sessionUser = await requireActiveUserSession();
+    const userOrgId = sessionUser.organizationId;
 
     const body = await req.json().catch(() => ({}));
     const {
@@ -272,8 +232,7 @@ export async function POST(req: NextRequest) {
     if (error instanceof ConflictError) {
       return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     }
-    const errorMsg = error instanceof Error ? error.message : "Error saving config";
-    console.error("[WhatsApp Config POST Error]:", error);
-    return NextResponse.json({ success: false, error: `Failed to save configuration: ${errorMsg}` }, { status: 500 });
+    return handleAuthError(error);
   }
 }
+

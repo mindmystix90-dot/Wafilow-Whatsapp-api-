@@ -20,6 +20,7 @@ import {
   ExternalLink,
   Layers,
   User,
+  ShieldAlert,
 } from "lucide-react";
 
 interface AppLayoutProps {
@@ -175,6 +176,24 @@ export default function AppLayout({
                 );
               })}
             </div>
+
+            {(session?.user?.role === "super_admin" || session?.user?.role === "SUPER_ADMIN") && (
+              <div className="pt-2">
+                <Link
+                  href="/admin/dashboard"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center justify-between p-3 rounded-xl text-xs font-bold bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 transition-all"
+                >
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-amber-400" />
+                    <span>Super Admin Console</span>
+                  </div>
+                  <span className="text-[9px] font-mono uppercase bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded font-black">
+                    ROOT
+                  </span>
+                </Link>
+              </div>
+            )}
 
             {session?.user && (
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -392,8 +411,26 @@ export default function AppLayout({
           </nav>
         </div>
 
+        {/* Super Admin Panel Access (Visible strictly to SUPER_ADMIN) */}
+        {(session?.user?.role === "super_admin" || session?.user?.role === "SUPER_ADMIN") && (
+          <div className="pt-3 pb-1">
+            <Link
+              href="/admin/dashboard"
+              className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 transition-all shadow-sm"
+            >
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-amber-400" />
+                <span>Super Admin</span>
+              </div>
+              <span className="text-[9px] font-mono uppercase bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded font-black">
+                ROOT
+              </span>
+            </Link>
+          </div>
+        )}
+
         {/* User Profile Card at bottom of sidebar */}
-        <div className="pt-4 border-t border-slate-200/80 dark:border-slate-800/80">
+        <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800/80">
           <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80 group">
             <Link
               href="/profile"

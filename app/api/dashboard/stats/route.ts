@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getWhatsAppConnection, validateEnvironment, WhatsAppEnvironment } from "@/lib/whatsapp";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
-    let orgId = session?.user?.organizationId;
+    const sessionUser = await requireActiveUserSession();
+    const orgId = sessionUser.organizationId;
 
     const { searchParams } = new URL(req.url);
     const rawEnv = searchParams.get("environment") || "production";
@@ -21,81 +19,6 @@ export async function GET(req: NextRequest) {
       environment = "production";
     }
 
-    if (!session || !userId) {
-      return NextResponse.json({
-        success: true,
-        environment,
-        stats: {
-          totalMessages: 0,
-          totalOutbound: 0,
-          totalInbound: 0,
-          deliveredOutbound: 0,
-          readMessages: 0,
-          totalContacts: 0,
-          activeContacts: 0,
-          messagesSentToday: 0,
-          messagesDeliveredToday: 0,
-          openConversations: 0,
-          deliveryRate: 100,
-          readRate: 100,
-        },
-        recentInquiries: [],
-        metaConfig: {
-          isConfigured: false,
-          phoneNumberId: "Not configured",
-          wabaId: "Not configured",
-          hasAccessToken: false,
-          verifyToken: "",
-          environment,
-        },
-        connections: {
-          production: { configured: false, status: "disconnected" },
-          sandbox: { configured: false, status: "disconnected" },
-        },
-      });
-    }
-
-    if (!orgId) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { organizationId: true },
-      });
-      orgId = user?.organizationId || null;
-    }
-
-    if (!orgId) {
-      return NextResponse.json({
-        success: true,
-        environment,
-        stats: {
-          totalMessages: 0,
-          totalOutbound: 0,
-          totalInbound: 0,
-          deliveredOutbound: 0,
-          readMessages: 0,
-          totalContacts: 0,
-          activeContacts: 0,
-          messagesSentToday: 0,
-          messagesDeliveredToday: 0,
-          openConversations: 0,
-          deliveryRate: 100,
-          readRate: 100,
-        },
-        recentInquiries: [],
-        metaConfig: {
-          isConfigured: false,
-          phoneNumberId: "Not configured",
-          wabaId: "Not configured",
-          hasAccessToken: false,
-          verifyToken: "",
-          environment,
-        },
-        connections: {
-          production: { configured: false, status: "disconnected" },
-          sandbox: { configured: false, status: "disconnected" },
-        },
-      });
-    }
 
     const [prodConfig, sandConfig] = await Promise.all([
       getWhatsAppConnection(orgId, "production"),
@@ -260,8 +183,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Error fetching stats";
-    console.error("[Dashboard Stats Error]:", error);
-    return NextResponse.json({ success: false, error: errorMsg }, { status: 500 });
+    return handleAuthError(error);
   }
 }
+

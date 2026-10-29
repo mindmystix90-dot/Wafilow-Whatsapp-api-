@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { testWhatsAppConnectionDiagnostic, validateEnvironment, WhatsAppEnvironment } from "@/lib/whatsapp";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -23,41 +21,10 @@ export async function GET(req: NextRequest) {
   return runTest(req, rawEnv);
 }
 
-async function runTest(req: NextRequest, rawEnv: string) {
+async function runTest(_req: NextRequest, rawEnv: string) {
   try {
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
-    let orgId = session?.user?.organizationId;
-
-    if (!session || !userId) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized. Please sign in to test your WhatsApp connection.",
-          code: "UNAUTHORIZED",
-        },
-        { status: 401 }
-      );
-    }
-
-    if (!orgId) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { organizationId: true },
-      });
-      orgId = user?.organizationId || null;
-    }
-
-    if (!orgId) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "No WhatsApp Business account workspace found for your account.",
-          code: "NOT_CONFIGURED",
-        },
-        { status: 400 }
-      );
-    }
+    const sessionUser = await requireActiveUserSession();
+    const orgId = sessionUser.organizationId;
 
     let environment: WhatsAppEnvironment;
     try {
@@ -96,13 +63,7 @@ async function runTest(req: NextRequest, rawEnv: string) {
       sandboxRestrictions: result.sandboxRestrictions,
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Error contacting Meta";
-    return NextResponse.json(
-      {
-        success: false,
-        error: `Diagnostic test failed: ${errorMsg}`,
-      },
-      { status: 500 }
-    );
+    return handleAuthError(error);
   }
 }
+

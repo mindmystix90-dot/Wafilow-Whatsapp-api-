@@ -7,36 +7,13 @@ import {
   WhatsAppEnvironment,
 } from "@/lib/whatsapp";
 import { prisma } from "@/lib/prisma";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
-    let orgId = session?.user?.organizationId;
+    const sessionUser = await requireActiveUserSession();
+    const orgId = sessionUser.organizationId;
 
-    if (!session || !userId) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized. Please sign in to send test messages." },
-        { status: 401 }
-      );
-    }
-
-    if (!orgId) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { organizationId: true },
-      });
-      orgId = user?.organizationId || null;
-    }
-
-    if (!orgId) {
-      return NextResponse.json(
-        { success: false, error: "No WhatsApp Business account connected to your workspace." },
-        { status: 400 }
-      );
-    }
 
     const body = await req.json().catch(() => ({}));
     const { to, messageType = "template", text, environment: rawEnv = "production" } = body;
@@ -149,11 +126,7 @@ export async function POST(req: NextRequest) {
       message: `Test WhatsApp ping successfully dispatched via Meta Cloud API in ${environment.toUpperCase()} mode (ID: ${sendResult.messageId}).`,
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Internal server error";
-    console.error("[Test WhatsApp Message Error]:", error);
-    return NextResponse.json(
-      { success: false, error: `Failed to process test message: ${errorMsg}` },
-      { status: 500 }
-    );
+    return handleAuthError(error);
   }
 }
+

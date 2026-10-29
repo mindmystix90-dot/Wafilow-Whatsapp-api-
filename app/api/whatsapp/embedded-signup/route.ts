@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { getServerWhatsAppEnv } from "@/lib/env";
 import { encryptToken } from "@/lib/crypto";
+import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -26,51 +25,21 @@ class ConflictError extends Error {
  */
 export async function POST(req: NextRequest) {
   try {
-    // 1. Validate authenticated Wafilow session before provisioning
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
-    const userOrgId = session?.user?.organizationId;
+    // 1. Validate authenticated active Wafilow session before provisioning
+    const sessionUser = await requireActiveUserSession();
+    const userOrgId = sessionUser.organizationId;
 
-    if (!session || !userId) {
+    const targetOrg = await prisma.organization.findUnique({
+      where: { id: userOrgId },
+    });
+
+    if (!targetOrg) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Authentication required. You must be signed in to connect WhatsApp Business via Embedded Signup.",
-        },
-        { status: 401 }
+        { success: false, error: "Organization not found for active user." },
+        { status: 404 }
       );
     }
 
-    let targetOrg = null;
-
-    if (userOrgId) {
-      targetOrg = await prisma.organization.findUnique({
-        where: { id: userOrgId },
-      });
-    }
-
-    if (!targetOrg) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        include: { organization: true },
-      });
-
-      if (user?.organization) {
-        targetOrg = user.organization;
-      } else {
-        // Create an organization if the user doesn't have one
-        targetOrg = await prisma.organization.create({
-          data: {
-            name: `${user?.name || "Customer"}'s Workspace`,
-            webhookVerifyToken: `wafilow_${Math.random().toString(36).substring(2, 12)}`,
-          },
-        });
-        await prisma.user.update({
-          where: { id: userId },
-          data: { organizationId: targetOrg.id },
-        });
-      }
-    }
 
     // 2. Parse request payload
     const body = await req.json().catch(() => ({}));
@@ -466,6 +435,6 @@ export async function POST(req: NextRequest) {
 
     const errMsg = error instanceof Error ? error.message : "Internal server error occurred.";
     console.error("[Embedded Signup Error]:", errMsg);
-    return NextResponse.json({ success: false, error: errMsg }, { status: 500 });
+    return handleAuthError(error);
   }
 }

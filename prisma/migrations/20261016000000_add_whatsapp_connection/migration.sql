@@ -37,31 +37,3 @@ END $$;
 ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "environment" TEXT NOT NULL DEFAULT 'production';
 ALTER TABLE "Conversation" ADD COLUMN IF NOT EXISTS "environment" TEXT NOT NULL DEFAULT 'production';
 ALTER TABLE "Message" ADD COLUMN IF NOT EXISTS "environment" TEXT NOT NULL DEFAULT 'production';
-
--- Optional Data Migration: Seed initial production connection from existing Organization credentials
-INSERT INTO "WhatsAppConnection" (
-    "id",
-    "organizationId",
-    "environment",
-    "wabaId",
-    "phoneNumberId",
-    "displayPhoneNumber",
-    "accessToken",
-    "status",
-    "createdAt",
-    "updatedAt"
-)
-SELECT 
-    'conn_' || substr(md5(random()::text || clock_timestamp()::text), 1, 20),
-    "id",
-    'production',
-    "wabaId",
-    "phoneNumberId",
-    "displayPhoneNumber",
-    "accessToken",
-    CASE WHEN "phoneNumberId" IS NOT NULL AND "accessToken" IS NOT NULL THEN 'connected' ELSE 'disconnected' END,
-    CURRENT_TIMESTAMP,
-    CURRENT_TIMESTAMP
-FROM "Organization"
-WHERE "phoneNumberId" IS NOT NULL
-ON CONFLICT ("organizationId", "environment") DO NOTHING;

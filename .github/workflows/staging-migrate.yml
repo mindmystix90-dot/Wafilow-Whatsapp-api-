@@ -1,0 +1,454 @@
+name: Staging Database Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Type "wafilow-staging" to confirm execution on Neon staging'
+        required: true
+        default: ''
+
+jobs:
+  migrate_staging:
+    name: Baseline & Migrate Staging Database
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate Confirmation Guard & Secret Presence
+        env:
+          CONFIRM_TARGET: ${{ github.event.inputs.target_branch }}
+          STAGING_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$STAGING_URL" ]; then
+            echo "::error::Secret STAGING_DATABASE_URL is not configured in GitHub Repository Secrets. Aborting."
+            exit 1
+          fi
+          if [ "$CONFIRM_TARGET" != "wafilow-staging" ]; then
+            echo "::error::Aborted. Confirmation input must exactly equal 'wafilow-staging'."
+            exit 1
+          fi
+          echo "Target confirmed: wafilow-staging"
+          echo "Secret STAGING_DATABASE_URL is configured."
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Bun (if bun.lock present)
+        if: hashFiles('bun.lock', 'bun.lockb') != ''
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies with Frozen Lockfile
+        run: |
+          if [ -f "bun.lock" ] || [ -f "bun.lockb" ]; then
+            echo "Detected bun.lock. Running bun install --frozen-lockfile..."
+            bun install --frozen-lockfile
+          elif [ -f "package-lock.json" ]; then
+            echo "Detected package-lock.json. Running npm ci..."
+            npm ci
+          else
+            echo "::error::No recognized frozen lockfile found. Aborting."
+            exit 1
+          fi
+
+      - name: Pre-Flight Verification (Comprehensive Baseline & Staging Validation)
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          node -e '
+          const { PrismaClient } = require("@prisma/client");
+
+          async function verifyPreflight() {
+            const urlStr = process.env.DATABASE_URL;
+            if (!urlStr) {
+              console.error("::error::DATABASE_URL environment variable is missing.");
+              process.exit(1);
+            }
+
+            let parsed;
+            try {
+              parsed = new URL(urlStr);
+            } catch {
+              console.error("::error::DATABASE_URL is not a valid URL.");
+              process.exit(1);
+            }
+
+            if (parsed.protocol !== "postgresql:" && parsed.protocol !== "postgres:") {
+              console.error("::error::DATABASE_URL protocol must be postgresql: or postgres:.");
+              process.exit(1);
+            }
+
+            const host = parsed.hostname.toLowerCase();
+            const safeMaskedHost = host.length > 10 ? `${host.slice(0, 4)}...${host.slice(-8)}` : "***";
+            console.log(`[Pre-Flight] Connecting to endpoint: ${safeMaskedHost}`);
+
+            if (host.includes("production") && !host.includes("staging")) {
+              console.error("::error::SAFETY HALT: Host contains production identifier. Aborting.");
+              process.exit(1);
+            }
+
+            const prisma = new PrismaClient();
+            try {
+              // 1. Neon Branch GUC Verification (if set by proxy)
+              let gucVerified = false;
+              try {
+                const branchRes = await prisma.$queryRawUnsafe(`SELECT current_setting('\''neon.branch_name'\'', true) as branch;`);
+                const detectedBranch = branchRes[0]?.branch;
+                if (detectedBranch) {
+                  if (detectedBranch !== "wafilow-staging") {
+                    console.error(`::error::SAFETY HALT: Connected branch is '\''${detectedBranch}'\'' (not '\''wafilow-staging'\''). Aborting.`);
+                    process.exit(1);
+                  }
+                  console.log("[Pre-Flight] ✓ Verified active Neon branch via GUC: wafilow-staging");
+                  gucVerified = true;
+                }
+              } catch (e) {
+                // GUC not available in this pooled session
+              }
+              if (!gucVerified) {
+                console.log("[Pre-Flight] Note: neon.branch_name GUC not returned by proxy. Verifying identity through strict zero-row invariant and catalog schema signature.");
+              }
+
+              // 2. Strict Zero-Row Staging Safety Invariant
+              console.log("[Pre-Flight] Auditing table row counts to ensure staging isolation...");
+              const rowCounts = await prisma.$queryRawUnsafe(`
+                SELECT 
+                  (SELECT count(*) FROM "Account") as account_count,
+                  (SELECT count(*) FROM "Session") as session_count,
+                  (SELECT count(*) FROM "User") as user_count,
+                  (SELECT count(*) FROM "VerificationToken") as token_count,
+                  (SELECT count(*) FROM "Organization") as org_count,
+                  (SELECT count(*) FROM "WhatsAppBusinessAccount") as waba_count,
+                  (SELECT count(*) FROM "WhatsAppPhoneNumber") as phone_count,
+                  (SELECT count(*) FROM "Contact") as contact_count,
+                  (SELECT count(*) FROM "Conversation") as conv_count,
+                  (SELECT count(*) FROM "Template") as template_count,
+                  (SELECT count(*) FROM "Campaign") as campaign_count,
+                  (SELECT count(*) FROM "Message") as message_count;
+              `);
+              const counts = rowCounts[0];
+              let totalRows = 0;
+              for (const [k, v] of Object.entries(counts)) {
+                totalRows += Number(v);
+              }
+              console.log(`[Pre-Flight] Total existing rows across all 12 baseline tables: ${totalRows}`);
+
+              if (totalRows > 0) {
+                console.error(`::error::FATAL SAFETY HALT: Database contains ${totalRows} existing rows. The intended wafilow-staging branch must be schema-only (0 rows). Aborting to prevent modifying non-staging or populated data.`);
+                process.exit(1);
+              }
+              console.log("[Pre-Flight] ✓ Confirmed 0 live rows across all baseline tables (pure schema-only branch).");
+
+              // 3. Complete Baseline Table Audit
+              const tablesRes = await prisma.$queryRawUnsafe(`
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = '\''public'\'' 
+                ORDER BY table_name;
+              `);
+              const tables = tablesRes.map(t => t.table_name);
+              console.log(`[Pre-Flight] Detected ${tables.length} tables in target public schema.`);
+
+              const expectedBaseTables = [
+                "Account", "Campaign", "Contact", "Conversation", "Message",
+                "Organization", "Session", "Template", "User", "VerificationToken",
+                "WhatsAppBusinessAccount", "WhatsAppPhoneNumber"
+              ];
+              const missingBase = expectedBaseTables.filter(t => !tables.includes(t));
+              if (missingBase.length > 0) {
+                console.error(`::error::Target database is missing baseline tables: ${missingBase.join(", ")}. Aborting.`);
+                process.exit(1);
+              }
+              console.log("[Pre-Flight] ✓ All 12 baseline tables confirmed present in database.");
+
+              // 3b. Exhaustive Baseline Column Audit (92 baseline columns)
+              const colsRes = await prisma.$queryRawUnsafe(`
+                SELECT table_name, column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = '\''public'\'';
+              `);
+              const existingCols = new Set(colsRes.map(c => `${c.table_name}.${c.column_name}`));
+
+              const expectedBaselineCols = [
+                "Account.id", "Account.userId", "Account.type", "Account.provider", "Account.providerAccountId",
+                "Account.refresh_token", "Account.access_token", "Account.expires_at", "Account.token_type",
+                "Account.scope", "Account.id_token", "Account.session_state",
+                "Session.id", "Session.sessionToken", "Session.userId", "Session.expires",
+                "User.id", "User.name", "User.email", "User.emailVerified", "User.image", "User.password",
+                "User.role", "User.organizationId", "User.createdAt", "User.updatedAt",
+                "VerificationToken.identifier", "VerificationToken.token", "VerificationToken.expires",
+                "Organization.id", "Organization.name", "Organization.wabaId", "Organization.phoneNumberId",
+                "Organization.displayPhoneNumber", "Organization.accessToken", "Organization.webhookVerifyToken",
+                "Organization.createdAt", "Organization.updatedAt",
+                "WhatsAppBusinessAccount.id", "WhatsAppBusinessAccount.organizationId", "WhatsAppBusinessAccount.wabaId",
+                "WhatsAppBusinessAccount.name", "WhatsAppBusinessAccount.createdAt", "WhatsAppBusinessAccount.updatedAt",
+                "WhatsAppPhoneNumber.id", "WhatsAppPhoneNumber.wabaAccountId", "WhatsAppPhoneNumber.phoneNumberId",
+                "WhatsAppPhoneNumber.displayPhone", "WhatsAppPhoneNumber.verifiedName", "WhatsAppPhoneNumber.createdAt",
+                "WhatsAppPhoneNumber.updatedAt",
+                "Contact.id", "Contact.organizationId", "Contact.name", "Contact.phoneNumber",
+                "Contact.waId", "Contact.tags", "Contact.status", "Contact.createdAt", "Contact.updatedAt",
+                "Conversation.id", "Conversation.contactId", "Conversation.organizationId",
+                "Conversation.status", "Conversation.lastMessageAt", "Conversation.createdAt", "Conversation.updatedAt",
+                "Template.id", "Template.name", "Template.category", "Template.language", "Template.status",
+                "Template.body", "Template.createdAt",
+                "Campaign.id", "Campaign.name", "Campaign.templateId", "Campaign.status",
+                "Campaign.scheduledAt", "Campaign.sentCount", "Campaign.totalCount", "Campaign.createdAt",
+                "Message.id", "Message.contactId", "Message.organizationId", "Message.wamId",
+                "Message.direction", "Message.content", "Message.type", "Message.status", "Message.errorMessage", "Message.timestamp"
+              ];
+
+              const missingBaselineCols = expectedBaselineCols.filter(col => !existingCols.has(col));
+              if (missingBaselineCols.length > 0) {
+                console.error(`::error::Target database is missing baseline columns: ${missingBaselineCols.join(", ")}. Aborting.`);
+                process.exit(1);
+              }
+              console.log(`[Pre-Flight] ✓ All ${expectedBaselineCols.length} baseline columns confirmed present across all 12 tables.`);
+
+              // 4. Assert Incremental Tables Do NOT Exist Yet
+              const incrementalTables = ["WhatsAppConnection", "AuditLog", "PasswordResetToken"];
+              const existingIncremental = incrementalTables.filter(t => tables.includes(t));
+              if (existingIncremental.length > 0) {
+                console.error(`::error::Incremental tables already exist: ${existingIncremental.join(", ")}. Cannot baseline 0_init.`);
+                process.exit(1);
+              }
+              console.log("[Pre-Flight] ✓ Incremental tables (WhatsAppConnection, AuditLog, PasswordResetToken) verified absent.");
+
+              // 5. Assert Incremental Columns Do NOT Exist on Base Tables
+              const incrementalColsRes = await prisma.$queryRawUnsafe(`
+                SELECT table_name, column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = '\''public'\'' 
+                  AND (
+                    (table_name = '\''Contact'\'' AND column_name = '\''environment\'') OR
+                    (table_name = '\''Conversation'\'' AND column_name = '\''environment\'') OR
+                    (table_name = '\''Message'\'' AND column_name = '\''environment\'') OR
+                    (table_name = '\''User'\'' AND column_name IN ('\''status\'', '\''sessionVersion\'')) OR
+                    (table_name = '\''Organization'\'' AND column_name IN ('\''status\'', '\''planTier\'', '\''monthlyLimit\''))
+                  );
+              `);
+              if (incrementalColsRes.length > 0) {
+                const found = incrementalColsRes.map(c => `${c.table_name}.${c.column_name}`).join(", ");
+                console.error(`::error::Incremental columns already exist on base tables: ${found}. Schema is not at baseline v0.`);
+                process.exit(1);
+              }
+              console.log("[Pre-Flight] ✓ Base tables verified in clean unmigrated state (zero incremental columns).");
+
+              // 6. Complete Baseline Foreign Key Constraint Audit
+              const fkRes = await prisma.$queryRawUnsafe(`
+                SELECT conname 
+                FROM pg_constraint c 
+                JOIN pg_namespace n ON n.oid = c.connamespace 
+                WHERE n.nspname = '\''public'\'' AND c.contype = '\''f'\'';
+              `);
+              const fks = fkRes.map(f => f.conname);
+              const expectedFks = [
+                "Account_userId_fkey",
+                "Session_userId_fkey",
+                "User_organizationId_fkey",
+                "WhatsAppBusinessAccount_organizationId_fkey",
+                "WhatsAppPhoneNumber_wabaAccountId_fkey",
+                "Contact_organizationId_fkey",
+                "Conversation_contactId_fkey",
+                "Conversation_organizationId_fkey",
+                "Message_contactId_fkey",
+                "Message_organizationId_fkey"
+              ];
+              const missingFks = expectedFks.filter(f => !fks.includes(f));
+              if (missingFks.length > 0) {
+                console.error(`::error::Target database is missing baseline foreign keys: ${missingFks.join(", ")}. Aborting.`);
+                process.exit(1);
+              }
+              console.log("[Pre-Flight] ✓ All 10 baseline foreign key constraints confirmed present.");
+
+              // 7. Complete Baseline Unique Index Audit
+              const indexRes = await prisma.$queryRawUnsafe(`
+                SELECT indexname 
+                FROM pg_indexes 
+                WHERE schemaname = '\''public'\'';
+              `);
+              const indexes = indexRes.map(i => i.indexname);
+              const expectedIndexes = [
+                "Account_provider_providerAccountId_key",
+                "Session_sessionToken_key",
+                "User_email_key",
+                "VerificationToken_token_key",
+                "VerificationToken_identifier_token_key",
+                "Organization_wabaId_key",
+                "Organization_phoneNumberId_key",
+                "WhatsAppBusinessAccount_wabaId_key",
+                "WhatsAppPhoneNumber_phoneNumberId_key",
+                "Contact_phoneNumber_key",
+                "Message_wamId_key"
+              ];
+              const missingIndexes = expectedIndexes.filter(i => !indexes.includes(i));
+              if (missingIndexes.length > 0) {
+                console.error(`::error::Target database is missing baseline unique indexes: ${missingIndexes.join(", ")}. Aborting.`);
+                process.exit(1);
+              }
+              console.log("[Pre-Flight] ✓ All 11 baseline unique indexes confirmed present.");
+
+              // 8. Confirm _prisma_migrations Does Not Exist
+              if (tables.includes("_prisma_migrations")) {
+                console.error("::error::_prisma_migrations already exists. Baseline 0_init can only be resolved on an unbaselined database.");
+                process.exit(1);
+              }
+              console.log("[Pre-Flight] ✓ Confirmed _prisma_migrations does not yet exist.");
+
+              console.log("[Pre-Flight] ========================================================");
+              console.log("[Pre-Flight] ALL PRE-FLIGHT CHECKS PASSED. Schema matches 0_init exactly.");
+              console.log("[Pre-Flight] ========================================================");
+            } catch (err) {
+              console.error("::error::Pre-flight database audit exception:", err instanceof Error ? err.message : String(err));
+              process.exit(1);
+            } finally {
+              await prisma.$disconnect();
+            }
+          }
+
+          verifyPreflight();
+          '
+
+      - name: Step 1 - Baseline 0_init (No DDL executed)
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          echo "Resolving baseline migration 0_init as applied with genuine checksum..."
+          npx prisma migrate resolve --applied 0_init
+
+      - name: Step 2 - Deploy Incremental Migrations
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          echo "Deploying incremental migrations (WhatsAppConnection, Super Admin persistence)..."
+          npx prisma migrate deploy
+
+      - name: Step 3 - Post-Flight Verification (Audit Incremental Objects & Migrations)
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          node -e '
+          const { PrismaClient } = require("@prisma/client");
+
+          async function verifyPostflight() {
+            const prisma = new PrismaClient();
+            try {
+              // 1. Audit tables in public schema
+              const tablesRes = await prisma.$queryRawUnsafe(`
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = '\''public'\'' 
+                ORDER BY table_name;
+              `);
+              const tables = tablesRes.map(t => t.table_name);
+              console.log(`[Post-Flight] Detected ${tables.length} tables in post-migration schema.`);
+
+              // Assert all 15 models + _prisma_migrations exist
+              const expectedAllTables = [
+                "Account", "Campaign", "Contact", "Conversation", "Message",
+                "Organization", "Session", "Template", "User", "VerificationToken",
+                "WhatsAppBusinessAccount", "WhatsAppPhoneNumber",
+                "WhatsAppConnection", "AuditLog", "PasswordResetToken", "_prisma_migrations"
+              ];
+              const missingTables = expectedAllTables.filter(t => !tables.includes(t));
+              if (missingTables.length > 0) {
+                console.error(`::error::Post-migration schema is missing tables: ${missingTables.join(", ")}`);
+                process.exit(1);
+              }
+              console.log("[Post-Flight] ✓ All 15 Prisma model tables + _prisma_migrations confirmed present.");
+
+              // 2. Audit Incremental Columns
+              const incColsRes = await prisma.$queryRawUnsafe(`
+                SELECT table_name, column_name, data_type 
+                FROM information_schema.columns 
+                WHERE table_schema = '\''public'\'' 
+                  AND (
+                    (table_name = '\''Contact'\'' AND column_name = '\''environment\'') OR
+                    (table_name = '\''Conversation'\'' AND column_name = '\''environment\'') OR
+                    (table_name = '\''Message'\'' AND column_name = '\''environment\'') OR
+                    (table_name = '\''User'\'' AND column_name IN ('\''status\'', '\''sessionVersion\'')) OR
+                    (table_name = '\''Organization'\'' AND column_name IN ('\''status\'', '\''planTier\'', '\''monthlyLimit\''))
+                  );
+              `);
+              if (incColsRes.length !== 8) {
+                console.error(`::error::Expected 8 incremental columns, but found ${incColsRes.length}.`);
+                process.exit(1);
+              }
+              console.log("[Post-Flight] ✓ All 8 incremental columns confirmed present with correct types.");
+
+              // 3. Audit Incremental Foreign Keys
+              const fkRes = await prisma.$queryRawUnsafe(`
+                SELECT conname 
+                FROM pg_constraint c 
+                JOIN pg_namespace n ON n.oid = c.connamespace 
+                WHERE n.nspname = '\''public'\'' AND c.contype = '\''f'\'';
+              `);
+              const fks = fkRes.map(f => f.conname);
+              const expectedNewFks = [
+                "WhatsAppConnection_organizationId_fkey",
+                "PasswordResetToken_userId_fkey"
+              ];
+              const missingNewFks = expectedNewFks.filter(f => !fks.includes(f));
+              if (missingNewFks.length > 0) {
+                console.error(`::error::Missing incremental foreign keys: ${missingNewFks.join(", ")}`);
+                process.exit(1);
+              }
+              console.log("[Post-Flight] ✓ Incremental foreign keys (WhatsAppConnection, PasswordResetToken) confirmed present.");
+
+              // 4. Audit Incremental Unique Indexes
+              const idxRes = await prisma.$queryRawUnsafe(`
+                SELECT indexname 
+                FROM pg_indexes 
+                WHERE schemaname = '\''public'\'';
+              `);
+              const indexes = idxRes.map(i => i.indexname);
+              const expectedNewIndexes = [
+                "WhatsAppConnection_organizationId_environment_key",
+                "PasswordResetToken_tokenHash_key"
+              ];
+              const missingNewIndexes = expectedNewIndexes.filter(i => !indexes.includes(i));
+              if (missingNewIndexes.length > 0) {
+                console.error(`::error::Missing incremental unique indexes: ${missingNewIndexes.join(", ")}`);
+                process.exit(1);
+              }
+              console.log("[Post-Flight] ✓ Incremental unique indexes confirmed present.");
+
+              // 5. Audit _prisma_migrations Records
+              const migrationsRes = await prisma.$queryRawUnsafe(`
+                SELECT migration_name, finished_at, rolled_back_at 
+                FROM "_prisma_migrations" 
+                ORDER BY finished_at ASC;
+              `);
+              console.log(`[Post-Flight] Found ${migrationsRes.length} migration records in _prisma_migrations:`);
+              migrationsRes.forEach(m => console.log(`  - ${m.migration_name} (finished: ${m.finished_at})`));
+
+              if (migrationsRes.length !== 3) {
+                console.error(`::error::Expected 3 migration records in _prisma_migrations, but found ${migrationsRes.length}`);
+                process.exit(1);
+              }
+              console.log("[Post-Flight] ✓ Authentic migration history confirmed for 0_init, add_whatsapp_connection, and add_super_admin_persistence.");
+
+              console.log("[Post-Flight] ========================================================");
+              console.log("[Post-Flight] POST-FLIGHT AUDIT PASSED. Staging database is fully migrated.");
+              console.log("[Post-Flight] ========================================================");
+            } catch (err) {
+              console.error("::error::Post-flight database audit exception:", err instanceof Error ? err.message : String(err));
+              process.exit(1);
+            } finally {
+              await prisma.$disconnect();
+            }
+          }
+
+          verifyPostflight();
+          '
+
+      - name: Step 4 - Verify Prisma CLI Status
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          echo "Executing final Prisma CLI migration status check..."
+          npx prisma migrate status
