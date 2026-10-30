@@ -13,13 +13,18 @@ jobs:
     name: Baseline & Migrate Staging Database
     runs-on: ubuntu-latest
     steps:
-      - name: Validate Confirmation Guard & Secret Presence
+      - name: Validate Confirmation Guard, Secret & Variable Presence
         env:
           CONFIRM_TARGET: ${{ github.event.inputs.target_branch }}
           STAGING_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          EXPECTED_HOST: ${{ vars.STAGING_DATABASE_HOST }}
         run: |
           if [ -z "$STAGING_URL" ]; then
             echo "::error::Secret STAGING_DATABASE_URL is not configured in GitHub Repository Secrets. Aborting."
+            exit 1
+          fi
+          if [ -z "$EXPECTED_HOST" ]; then
+            echo "::error::Repository variable STAGING_DATABASE_HOST is not configured in GitHub Repository Variables. Aborting."
             exit 1
           fi
           if [ "$CONFIRM_TARGET" != "wafilow-staging" ]; then
@@ -28,6 +33,7 @@ jobs:
           fi
           echo "Target confirmed: wafilow-staging"
           echo "Secret STAGING_DATABASE_URL is configured."
+          echo "Variable STAGING_DATABASE_HOST is configured: $EXPECTED_HOST"
 
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -59,6 +65,7 @@ jobs:
       - name: Pre-Flight Verification (Comprehensive Baseline & Staging Validation)
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          EXPECTED_STAGING_HOST: ${{ vars.STAGING_DATABASE_HOST }}
         run: |
           node -e '
           const { PrismaClient } = require("@prisma/client");
@@ -67,6 +74,12 @@ jobs:
             const urlStr = process.env.DATABASE_URL;
             if (!urlStr) {
               console.error("::error::DATABASE_URL environment variable is missing.");
+              process.exit(1);
+            }
+
+            const expectedHost = (process.env.EXPECTED_STAGING_HOST || "").trim().toLowerCase();
+            if (!expectedHost) {
+              console.error("::error::FATAL SAFETY HALT: STAGING_DATABASE_HOST repository variable is missing or empty. Aborting.");
               process.exit(1);
             }
 
@@ -83,35 +96,34 @@ jobs:
               process.exit(1);
             }
 
-            const host = parsed.hostname.toLowerCase();
-            const safeMaskedHost = host.length > 10 ? `${host.slice(0, 4)}...${host.slice(-8)}` : "***";
-            console.log(`[Pre-Flight] Connecting to endpoint: ${safeMaskedHost}`);
+            const actualHost = (parsed.hostname || "").trim().toLowerCase();
+            console.log(`[Pre-Flight] Connecting to endpoint: ${actualHost}`);
 
-            if (host.includes("production") && !host.includes("staging")) {
-              console.error("::error::SAFETY HALT: Host contains production identifier. Aborting.");
+            // 1. Mandatory Exact Neon Endpoint Hostname Verification (Fail-Closed)
+            if (actualHost !== expectedHost) {
+              console.error(`::error::FATAL SAFETY HALT: Endpoint hostname mismatch! Connected host: '\''${actualHost}'\'', Expected STAGING_DATABASE_HOST: '\''${expectedHost}'\''. Aborting immediately.`);
               process.exit(1);
             }
+            console.log(`[Pre-Flight] ✓ Positively verified exact Neon staging endpoint hostname: ${actualHost}`);
 
             const prisma = new PrismaClient();
             try {
-              // 1. Neon Branch GUC Verification (if set by proxy)
-              let gucVerified = false;
+              // 2. Neon Branch GUC Verification (when available)
+              console.log("[Pre-Flight] Checking Neon database session for branch identity GUC...");
               try {
                 const branchRes = await prisma.$queryRawUnsafe(`SELECT current_setting('\''neon.branch_name'\'', true) as branch;`);
                 const detectedBranch = branchRes[0]?.branch;
-                if (detectedBranch) {
-                  if (detectedBranch !== "wafilow-staging") {
-                    console.error(`::error::SAFETY HALT: Connected branch is '\''${detectedBranch}'\'' (not '\''wafilow-staging'\''). Aborting.`);
+                if (detectedBranch && detectedBranch.trim() !== "") {
+                  if (detectedBranch.trim() !== "wafilow-staging") {
+                    console.error(`::error::FATAL SAFETY HALT: Connected Neon branch GUC is '\''${detectedBranch}'\'', which does NOT match '\''wafilow-staging'\''. Aborting immediately.`);
                     process.exit(1);
                   }
-                  console.log("[Pre-Flight] ✓ Verified active Neon branch via GUC: wafilow-staging");
-                  gucVerified = true;
+                  console.log(`[Pre-Flight] ✓ Verified active Neon branch via GUC: ${detectedBranch}`);
+                } else {
+                  console.log("[Pre-Flight] Note: neon.branch_name GUC returned NULL (typical for connection pooled endpoints). Identity verified via exact endpoint hostname.");
                 }
               } catch (e) {
-                // GUC not available in this pooled session
-              }
-              if (!gucVerified) {
-                console.log("[Pre-Flight] Note: neon.branch_name GUC not returned by proxy. Verifying identity through strict zero-row invariant and catalog schema signature.");
+                console.log("[Pre-Flight] Note: neon.branch_name GUC check omitted by server. Identity verified via exact endpoint hostname.");
               }
 
               // 2. Strict Zero-Row Staging Safety Invariant
@@ -417,20 +429,70 @@ jobs:
               }
               console.log("[Post-Flight] ✓ Incremental unique indexes confirmed present.");
 
-              // 5. Audit _prisma_migrations Records
+              // 5. Audit _prisma_migrations Records, Real Checksums, and Non-Rollback
+              const fs = require("fs");
+              const path = require("path");
+              const crypto = require("crypto");
+
               const migrationsRes = await prisma.$queryRawUnsafe(`
-                SELECT migration_name, finished_at, rolled_back_at 
+                SELECT id, checksum, migration_name, finished_at, rolled_back_at, applied_steps_count
                 FROM "_prisma_migrations" 
-                ORDER BY finished_at ASC;
+                ORDER BY started_at ASC, finished_at ASC;
               `);
               console.log(`[Post-Flight] Found ${migrationsRes.length} migration records in _prisma_migrations:`);
-              migrationsRes.forEach(m => console.log(`  - ${m.migration_name} (finished: ${m.finished_at})`));
 
-              if (migrationsRes.length !== 3) {
-                console.error(`::error::Expected 3 migration records in _prisma_migrations, but found ${migrationsRes.length}`);
+              const expectedMigrations = [
+                "0_init",
+                "20261016000000_add_whatsapp_connection",
+                "20261020000000_add_super_admin_persistence"
+              ];
+
+              if (migrationsRes.length !== expectedMigrations.length) {
+                console.error(`::error::Expected exactly ${expectedMigrations.length} migration records, found ${migrationsRes.length}`);
                 process.exit(1);
               }
-              console.log("[Post-Flight] ✓ Authentic migration history confirmed for 0_init, add_whatsapp_connection, and add_super_admin_persistence.");
+
+              for (let i = 0; i < expectedMigrations.length; i++) {
+                const expectedName = expectedMigrations[i];
+                const record = migrationsRes[i];
+
+                if (record.migration_name !== expectedName) {
+                  console.error(`::error::Migration record index ${i} is '\''${record.migration_name}'\'', expected '\''${expectedName}'\''.`);
+                  process.exit(1);
+                }
+
+                if (!record.finished_at) {
+                  console.error(`::error::Migration '\''${expectedName}'\'' has not completed (finished_at is NULL).`);
+                  process.exit(1);
+                }
+
+                if (record.rolled_back_at !== null && record.rolled_back_at !== undefined) {
+                  console.error(`::error::Migration '\''${expectedName}'\'' was rolled back (rolled_back_at: ${record.rolled_back_at}).`);
+                  process.exit(1);
+                }
+
+                if (!record.applied_steps_count || record.applied_steps_count < 1) {
+                  console.error(`::error::Migration '\''${expectedName}'\'' has invalid applied_steps_count: ${record.applied_steps_count}.`);
+                  process.exit(1);
+                }
+
+                // Compute real SHA-256 of local migration.sql file on disk
+                const localSqlPath = path.join(process.cwd(), "prisma", "migrations", expectedName, "migration.sql");
+                if (!fs.existsSync(localSqlPath)) {
+                  console.error(`::error::Local migration file not found at ${localSqlPath}`);
+                  process.exit(1);
+                }
+                const fileBytes = fs.readFileSync(localSqlPath);
+                const localChecksum = crypto.createHash("sha256").update(fileBytes).digest("hex");
+
+                if (record.checksum !== localChecksum) {
+                  console.error(`::error::Checksum mismatch for '\''${expectedName}'\''. Recorded in DB: ${record.checksum}, Local file hash: ${localChecksum}`);
+                  process.exit(1);
+                }
+
+                console.log(`  ✓ ${record.migration_name} | finished_at: ${record.finished_at} | checksum: ${record.checksum} (MATCHES LOCAL FILE)`);
+              }
+              console.log("[Post-Flight] ✓ Authentic migration history, completion, non-rollback, and genuine checksums verified for all 3 migrations.");
 
               console.log("[Post-Flight] ========================================================");
               console.log("[Post-Flight] POST-FLIGHT AUDIT PASSED. Staging database is fully migrated.");
