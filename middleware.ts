@@ -12,16 +12,26 @@ const authMiddleware = withAuth({
   secret: process.env.NEXTAUTH_SECRET || "wafilow-saas-production-session-secret-key",
 });
 
-const CANONICAL_HOST = "wafilow-whatsapp-api.vercel.app";
+const DEFAULT_ALLOWED_HOSTS = new Set([
+  "wafilow-whatsapp-api.vercel.app",
+  "wjr-orion-edmunds-projects.vercel.app",
+]);
 
 export default async function middleware(req: NextRequest, event: NextFetchEvent) {
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
+  const canonicalHost = process.env.CANONICAL_HOST || "wafilow-whatsapp-api.vercel.app";
+  const disableCanonicalRedirect = process.env.DISABLE_CANONICAL_REDIRECT === "true";
 
-  // If request arrives on any Vercel preview domain, redirect to canonical production domain
-  if (host.endsWith(".vercel.app") && host !== CANONICAL_HOST) {
+  // If request arrives on an untrusted preview domain and redirect is not disabled, redirect to canonical host
+  if (
+    !disableCanonicalRedirect &&
+    host.endsWith(".vercel.app") &&
+    host !== canonicalHost &&
+    !DEFAULT_ALLOWED_HOSTS.has(host)
+  ) {
     const url = req.nextUrl.clone();
     url.protocol = "https:";
-    url.host = CANONICAL_HOST;
+    url.host = canonicalHost;
     url.port = "";
     return NextResponse.redirect(url, { status: 308 });
   }

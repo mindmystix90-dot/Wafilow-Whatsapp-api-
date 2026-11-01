@@ -32,6 +32,38 @@ interface CustomToken extends JWT {
 }
 
 /**
+ * Detects whether a database error is specifically due to a missing column (Prisma P2022 or PostgreSQL 42703),
+ * indicating that the database is running on the pre-migration baseline schema.
+ * Strictly excludes P2021 (missing table), connection errors, and avoids broad substring matching.
+ */
+export function isMissingColumnError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const err = error as {
+    code?: unknown;
+    meta?: Record<string, unknown>;
+  };
+
+  // Standard Prisma missing column error code
+  if (err.code === "P2022") return true;
+
+  // Direct PostgreSQL driver SQLSTATE for undefined_column (e.g. pg, postgres.js, Neon serverless)
+  if (err.code === "42703") return true;
+
+  // Structured metadata from database wrappers or driver errors
+  if (err.meta && typeof err.meta === "object") {
+    if (
+      err.meta.code === "42703" ||
+      err.meta.database_error_code === "42703" ||
+      err.meta.originalCode === "42703"
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Dependency-Injected Callbacks Factory for NextAuth.
  * Supports clean testing with mocked databases without ESM mutation.
  */
@@ -69,21 +101,52 @@ export function createAuthCallbacks(db: any = prisma) {
       // Real-time Database Verification on Every Request
       if (token.id) {
         try {
-          const dbUser = await db.user.findUnique({
-            where: { id: token.id },
-            select: {
-              id: true,
-              organizationId: true,
-              role: true,
-              status: true,
-              sessionVersion: true,
-              image: true,
-              name: true,
-              organization: {
-                select: { id: true, status: true },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let dbUser: any;
+          try {
+            dbUser = await db.user.findUnique({
+              where: { id: token.id },
+              select: {
+                id: true,
+                organizationId: true,
+                role: true,
+                status: true,
+                sessionVersion: true,
+                image: true,
+                name: true,
+                organization: {
+                  select: { id: true, status: true },
+                },
               },
-            },
-          });
+            });
+          } catch (colErr: unknown) {
+            // Precise fallback: only trigger if column is missing (P2022 / 42703).
+            // P2021 (missing table) or connection failures will not trigger fallback.
+            if (isMissingColumnError(colErr)) {
+              dbUser = await db.user.findUnique({
+                where: { id: token.id },
+                select: {
+                  id: true,
+                  organizationId: true,
+                  role: true,
+                  image: true,
+                  name: true,
+                  organization: {
+                    select: { id: true },
+                  },
+                },
+              });
+              if (dbUser) {
+                dbUser.status = "active";
+                dbUser.sessionVersion = 1;
+                if (dbUser.organization) {
+                  dbUser.organization.status = "active";
+                }
+              }
+            } else {
+              throw colErr;
+            }
+          }
 
           // Legacy JWT Support: If client token lacks sessionVersion, treat as version 1
           const effectiveTokenVersion = token.sessionVersion ?? 1;
@@ -173,15 +236,57 @@ export const authOptions: NextAuthOptions = {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           user = await (prisma.user as any).findUnique({
             where: { email: normalizedEmail },
-            include: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              password: true,
+              role: true,
+              status: true,
+              sessionVersion: true,
+              organizationId: true,
               organization: {
                 select: { id: true, status: true },
               },
             },
           });
-        } catch (error) {
-          console.error("[NextAuth authorize] Database lookup failed:", error);
-          throw new Error("Authentication service is temporarily unavailable. Please try again later.");
+        } catch (error: unknown) {
+          // Precise fallback: only trigger if column is missing (P2022 / 42703).
+          // P2021 (missing table) or other database errors will fail closed.
+          if (isMissingColumnError(error)) {
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              user = await (prisma.user as any).findUnique({
+                where: { email: normalizedEmail },
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  image: true,
+                  password: true,
+                  role: true,
+                  organizationId: true,
+                  organization: {
+                    select: { id: true },
+                  },
+                },
+              });
+              if (user) {
+                user.status = user.status ?? "active";
+                user.sessionVersion = user.sessionVersion ?? 1;
+                if (user.organization) {
+                  user.organization.status = user.organization.status ?? "active";
+                }
+              }
+            } catch (fallbackErr) {
+              console.error("[NextAuth authorize] Fallback database lookup failed:", fallbackErr);
+              throw new Error("Authentication service is temporarily unavailable. Please try again later.");
+            }
+          } else {
+            console.error("[NextAuth authorize] Database lookup failed:", error);
+            throw new Error("Authentication service is temporarily unavailable. Please try again later.");
+          }
         }
 
         if (!user || !user.password) {
@@ -200,7 +305,12 @@ export const authOptions: NextAuthOptions = {
 
         // Enforce Organization Suspension (For Customer Logins)
         const isAdminLogin = credentials.isAdminPortal === "true";
-        if (!isAdminLogin && user.organization && user.organization.status !== "active") {
+        if (
+          !isAdminLogin &&
+          user.organization &&
+          user.organization.status &&
+          user.organization.status !== "active"
+        ) {
           throw new Error("Your organization workspace has been suspended. Please contact support.");
         }
 

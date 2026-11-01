@@ -101,7 +101,7 @@ jobs:
 
             // 1. Mandatory Exact Neon Endpoint Hostname Verification (Fail-Closed)
             if (actualHost !== expectedHost) {
-              console.error(`::error::FATAL SAFETY HALT: Endpoint hostname mismatch! Connected host: '\''${actualHost}'\'', Expected STAGING_DATABASE_HOST: '\''${expectedHost}'\''. Aborting immediately.`);
+              console.error(`::error::FATAL SAFETY HALT: Endpoint hostname mismatch! Connected host: "${actualHost}", Expected STAGING_DATABASE_HOST: "${expectedHost}". Aborting immediately.`);
               process.exit(1);
             }
             console.log(`[Pre-Flight] ✓ Positively verified exact Neon staging endpoint hostname: ${actualHost}`);
@@ -111,11 +111,11 @@ jobs:
               // 2. Neon Branch GUC Verification (when available)
               console.log("[Pre-Flight] Checking Neon database session for branch identity GUC...");
               try {
-                const branchRes = await prisma.$queryRawUnsafe(`SELECT current_setting('\''neon.branch_name'\'', true) as branch;`);
+                const branchRes = await prisma.$queryRaw`SELECT current_setting(${"neon.branch_name"}, true) as branch;`;
                 const detectedBranch = branchRes[0]?.branch;
                 if (detectedBranch && detectedBranch.trim() !== "") {
                   if (detectedBranch.trim() !== "wafilow-staging") {
-                    console.error(`::error::FATAL SAFETY HALT: Connected Neon branch GUC is '\''${detectedBranch}'\'', which does NOT match '\''wafilow-staging'\''. Aborting immediately.`);
+                    console.error(`::error::FATAL SAFETY HALT: Connected Neon branch GUC is "${detectedBranch}", which does NOT match "wafilow-staging". Aborting immediately.`);
                     process.exit(1);
                   }
                   console.log(`[Pre-Flight] ✓ Verified active Neon branch via GUC: ${detectedBranch}`);
@@ -128,7 +128,7 @@ jobs:
 
               // 2. Strict Zero-Row Staging Safety Invariant
               console.log("[Pre-Flight] Auditing table row counts to ensure staging isolation...");
-              const rowCounts = await prisma.$queryRawUnsafe(`
+              const rowCounts = await prisma.$queryRaw`
                 SELECT 
                   (SELECT count(*) FROM "Account") as account_count,
                   (SELECT count(*) FROM "Session") as session_count,
@@ -142,7 +142,7 @@ jobs:
                   (SELECT count(*) FROM "Template") as template_count,
                   (SELECT count(*) FROM "Campaign") as campaign_count,
                   (SELECT count(*) FROM "Message") as message_count;
-              `);
+              `;
               const counts = rowCounts[0];
               let totalRows = 0;
               for (const [k, v] of Object.entries(counts)) {
@@ -157,12 +157,12 @@ jobs:
               console.log("[Pre-Flight] ✓ Confirmed 0 live rows across all baseline tables (pure schema-only branch).");
 
               // 3. Complete Baseline Table Audit
-              const tablesRes = await prisma.$queryRawUnsafe(`
+              const tablesRes = await prisma.$queryRaw`
                 SELECT table_name 
                 FROM information_schema.tables 
-                WHERE table_schema = '\''public'\'' 
+                WHERE table_schema = ${"public"} 
                 ORDER BY table_name;
-              `);
+              `;
               const tables = tablesRes.map(t => t.table_name);
               console.log(`[Pre-Flight] Detected ${tables.length} tables in target public schema.`);
 
@@ -179,11 +179,11 @@ jobs:
               console.log("[Pre-Flight] ✓ All 12 baseline tables confirmed present in database.");
 
               // 3b. Exhaustive Baseline Column Audit (92 baseline columns)
-              const colsRes = await prisma.$queryRawUnsafe(`
+              const colsRes = await prisma.$queryRaw`
                 SELECT table_name, column_name 
                 FROM information_schema.columns 
-                WHERE table_schema = '\''public'\'';
-              `);
+                WHERE table_schema = ${"public"};
+              `;
               const existingCols = new Set(colsRes.map(c => `${c.table_name}.${c.column_name}`));
 
               const expectedBaselineCols = [
@@ -231,18 +231,18 @@ jobs:
               console.log("[Pre-Flight] ✓ Incremental tables (WhatsAppConnection, AuditLog, PasswordResetToken) verified absent.");
 
               // 5. Assert Incremental Columns Do NOT Exist on Base Tables
-              const incrementalColsRes = await prisma.$queryRawUnsafe(`
+              const incrementalColsRes = await prisma.$queryRaw`
                 SELECT table_name, column_name 
                 FROM information_schema.columns 
-                WHERE table_schema = '\''public'\'' 
+                WHERE table_schema = ${"public"} 
                   AND (
-                    (table_name = '\''Contact'\'' AND column_name = '\''environment\'') OR
-                    (table_name = '\''Conversation'\'' AND column_name = '\''environment\'') OR
-                    (table_name = '\''Message'\'' AND column_name = '\''environment\'') OR
-                    (table_name = '\''User'\'' AND column_name IN ('\''status\'', '\''sessionVersion\'')) OR
-                    (table_name = '\''Organization'\'' AND column_name IN ('\''status\'', '\''planTier\'', '\''monthlyLimit\''))
+                    (table_name = ${"Contact"} AND column_name = ${"environment"}) OR
+                    (table_name = ${"Conversation"} AND column_name = ${"environment"}) OR
+                    (table_name = ${"Message"} AND column_name = ${"environment"}) OR
+                    (table_name = ${"User"} AND column_name IN (${"status"}, ${"sessionVersion"})) OR
+                    (table_name = ${"Organization"} AND column_name IN (${"status"}, ${"planTier"}, ${"monthlyLimit"}))
                   );
-              `);
+              `;
               if (incrementalColsRes.length > 0) {
                 const found = incrementalColsRes.map(c => `${c.table_name}.${c.column_name}`).join(", ");
                 console.error(`::error::Incremental columns already exist on base tables: ${found}. Schema is not at baseline v0.`);
@@ -251,12 +251,12 @@ jobs:
               console.log("[Pre-Flight] ✓ Base tables verified in clean unmigrated state (zero incremental columns).");
 
               // 6. Complete Baseline Foreign Key Constraint Audit
-              const fkRes = await prisma.$queryRawUnsafe(`
+              const fkRes = await prisma.$queryRaw`
                 SELECT conname 
                 FROM pg_constraint c 
                 JOIN pg_namespace n ON n.oid = c.connamespace 
-                WHERE n.nspname = '\''public'\'' AND c.contype = '\''f'\'';
-              `);
+                WHERE n.nspname = ${"public"} AND c.contype = ${"f"};
+              `;
               const fks = fkRes.map(f => f.conname);
               const expectedFks = [
                 "Account_userId_fkey",
@@ -278,11 +278,11 @@ jobs:
               console.log("[Pre-Flight] ✓ All 10 baseline foreign key constraints confirmed present.");
 
               // 7. Complete Baseline Unique Index Audit
-              const indexRes = await prisma.$queryRawUnsafe(`
+              const indexRes = await prisma.$queryRaw`
                 SELECT indexname 
                 FROM pg_indexes 
-                WHERE schemaname = '\''public'\'';
-              `);
+                WHERE schemaname = ${"public"};
+              `;
               const indexes = indexRes.map(i => i.indexname);
               const expectedIndexes = [
                 "Account_provider_providerAccountId_key",
@@ -350,12 +350,12 @@ jobs:
             const prisma = new PrismaClient();
             try {
               // 1. Audit tables in public schema
-              const tablesRes = await prisma.$queryRawUnsafe(`
+              const tablesRes = await prisma.$queryRaw`
                 SELECT table_name 
                 FROM information_schema.tables 
-                WHERE table_schema = '\''public'\'' 
+                WHERE table_schema = ${"public"} 
                 ORDER BY table_name;
-              `);
+              `;
               const tables = tablesRes.map(t => t.table_name);
               console.log(`[Post-Flight] Detected ${tables.length} tables in post-migration schema.`);
 
@@ -374,18 +374,18 @@ jobs:
               console.log("[Post-Flight] ✓ All 15 Prisma model tables + _prisma_migrations confirmed present.");
 
               // 2. Audit Incremental Columns
-              const incColsRes = await prisma.$queryRawUnsafe(`
+              const incColsRes = await prisma.$queryRaw`
                 SELECT table_name, column_name, data_type 
                 FROM information_schema.columns 
-                WHERE table_schema = '\''public'\'' 
+                WHERE table_schema = ${"public"} 
                   AND (
-                    (table_name = '\''Contact'\'' AND column_name = '\''environment\'') OR
-                    (table_name = '\''Conversation'\'' AND column_name = '\''environment\'') OR
-                    (table_name = '\''Message'\'' AND column_name = '\''environment\'') OR
-                    (table_name = '\''User'\'' AND column_name IN ('\''status\'', '\''sessionVersion\'')) OR
-                    (table_name = '\''Organization'\'' AND column_name IN ('\''status\'', '\''planTier\'', '\''monthlyLimit\''))
+                    (table_name = ${"Contact"} AND column_name = ${"environment"}) OR
+                    (table_name = ${"Conversation"} AND column_name = ${"environment"}) OR
+                    (table_name = ${"Message"} AND column_name = ${"environment"}) OR
+                    (table_name = ${"User"} AND column_name IN (${"status"}, ${"sessionVersion"})) OR
+                    (table_name = ${"Organization"} AND column_name IN (${"status"}, ${"planTier"}, ${"monthlyLimit"}))
                   );
-              `);
+              `;
               if (incColsRes.length !== 8) {
                 console.error(`::error::Expected 8 incremental columns, but found ${incColsRes.length}.`);
                 process.exit(1);
@@ -393,12 +393,12 @@ jobs:
               console.log("[Post-Flight] ✓ All 8 incremental columns confirmed present with correct types.");
 
               // 3. Audit Incremental Foreign Keys
-              const fkRes = await prisma.$queryRawUnsafe(`
+              const fkRes = await prisma.$queryRaw`
                 SELECT conname 
                 FROM pg_constraint c 
                 JOIN pg_namespace n ON n.oid = c.connamespace 
-                WHERE n.nspname = '\''public'\'' AND c.contype = '\''f'\'';
-              `);
+                WHERE n.nspname = ${"public"} AND c.contype = ${"f"};
+              `;
               const fks = fkRes.map(f => f.conname);
               const expectedNewFks = [
                 "WhatsAppConnection_organizationId_fkey",
@@ -412,11 +412,11 @@ jobs:
               console.log("[Post-Flight] ✓ Incremental foreign keys (WhatsAppConnection, PasswordResetToken) confirmed present.");
 
               // 4. Audit Incremental Unique Indexes
-              const idxRes = await prisma.$queryRawUnsafe(`
+              const idxRes = await prisma.$queryRaw`
                 SELECT indexname 
                 FROM pg_indexes 
-                WHERE schemaname = '\''public'\'';
-              `);
+                WHERE schemaname = ${"public"};
+              `;
               const indexes = idxRes.map(i => i.indexname);
               const expectedNewIndexes = [
                 "WhatsAppConnection_organizationId_environment_key",
@@ -434,11 +434,11 @@ jobs:
               const path = require("path");
               const crypto = require("crypto");
 
-              const migrationsRes = await prisma.$queryRawUnsafe(`
+              const migrationsRes = await prisma.$queryRaw`
                 SELECT id, checksum, migration_name, finished_at, rolled_back_at, applied_steps_count
                 FROM "_prisma_migrations" 
                 ORDER BY started_at ASC, finished_at ASC;
-              `);
+              `;
               console.log(`[Post-Flight] Found ${migrationsRes.length} migration records in _prisma_migrations:`);
 
               const expectedMigrations = [
@@ -457,22 +457,22 @@ jobs:
                 const record = migrationsRes[i];
 
                 if (record.migration_name !== expectedName) {
-                  console.error(`::error::Migration record index ${i} is '\''${record.migration_name}'\'', expected '\''${expectedName}'\''.`);
+                  console.error(`::error::Migration record index ${i} is "${record.migration_name}", expected "${expectedName}".`);
                   process.exit(1);
                 }
 
                 if (!record.finished_at) {
-                  console.error(`::error::Migration '\''${expectedName}'\'' has not completed (finished_at is NULL).`);
+                  console.error(`::error::Migration "${expectedName}" has not completed (finished_at is NULL).`);
                   process.exit(1);
                 }
 
                 if (record.rolled_back_at !== null && record.rolled_back_at !== undefined) {
-                  console.error(`::error::Migration '\''${expectedName}'\'' was rolled back (rolled_back_at: ${record.rolled_back_at}).`);
+                  console.error(`::error::Migration "${expectedName}" was rolled back (rolled_back_at: ${record.rolled_back_at}).`);
                   process.exit(1);
                 }
 
                 if (!record.applied_steps_count || record.applied_steps_count < 1) {
-                  console.error(`::error::Migration '\''${expectedName}'\'' has invalid applied_steps_count: ${record.applied_steps_count}.`);
+                  console.error(`::error::Migration "${expectedName}" has invalid applied_steps_count: ${record.applied_steps_count}.`);
                   process.exit(1);
                 }
 
@@ -486,7 +486,7 @@ jobs:
                 const localChecksum = crypto.createHash("sha256").update(fileBytes).digest("hex");
 
                 if (record.checksum !== localChecksum) {
-                  console.error(`::error::Checksum mismatch for '\''${expectedName}'\''. Recorded in DB: ${record.checksum}, Local file hash: ${localChecksum}`);
+                  console.error(`::error::Checksum mismatch for "${expectedName}". Recorded in DB: ${record.checksum}, Local file hash: ${localChecksum}`);
                   process.exit(1);
                 }
 

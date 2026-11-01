@@ -146,20 +146,23 @@ export async function launchEmbeddedSignup({
     throw new Error("Embedded Signup can only be launched in a browser environment.");
   }
 
-  // Ensure Embedded Signup flow only originates from the registered Meta production domain
-  const CANONICAL_PRODUCTION_ORIGIN = "https://wafilow-whatsapp-api.vercel.app";
-  const CANONICAL_HOST = "wafilow-whatsapp-api.vercel.app";
+  // Verify domain configuration for Meta Embedded Signup
+  const ALLOWED_HOSTS = new Set([
+    "wafilow-whatsapp-api.vercel.app",
+    "wjr-orion-edmunds-projects.vercel.app",
+    "localhost",
+    "127.0.0.1",
+  ]);
 
   if (
     typeof window !== "undefined" &&
     window.location.hostname.endsWith(".vercel.app") &&
-    window.location.hostname !== CANONICAL_HOST
+    !ALLOWED_HOSTS.has(window.location.hostname) &&
+    process.env.NEXT_PUBLIC_DISABLE_CANONICAL_REDIRECT !== "true"
   ) {
     console.warn(
-      `[Embedded Signup] Preview domain detected (${window.location.hostname}). Redirecting to production domain ${CANONICAL_PRODUCTION_ORIGIN}/settings.`
+      `[Embedded Signup] Unregistered preview domain detected (${window.location.hostname}). Meta OAuth requires the domain to be registered in Meta App Settings.`
     );
-    window.location.href = `${CANONICAL_PRODUCTION_ORIGIN}/settings`;
-    return new Promise<EmbeddedSignupResult>(() => {});
   }
 
   // Ensure Facebook SDK is initialized

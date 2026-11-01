@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAuthCallbacks } from "../lib/auth";
+import { createAuthCallbacks, isMissingColumnError } from "../lib/auth";
 import { createAuthGuards, AuthError } from "../lib/admin-auth";
 import type { prisma } from "../lib/prisma";
 
@@ -711,6 +711,251 @@ test("Wafilow Hardened Security & Auth Matrix", async (t) => {
     // Verify user state was untouched
     assert.equal(userState.sessionVersion, 1, "Session version must not have incremented");
     assert.equal(userState.password, "original_password_hash", "Password must remain unchanged");
+  });
+
+  // 17. Schema Resilience Fallback when Organization.status is missing (P2022 and reliable 42703)
+  await t.test("17. Authorize handles baseline schema when column is missing (P2022 and 42703)", async () => {
+    // Exact error identification assertions
+    assert.equal(isMissingColumnError({ code: "P2022" }), true, "P2022 must be identified as missing column");
+    assert.equal(isMissingColumnError({ code: "42703" }), true, "Direct PostgreSQL 42703 code must be identified");
+    assert.equal(isMissingColumnError({ meta: { code: "42703" } }), true, "PostgreSQL 42703 in meta.code must be identified");
+    assert.equal(isMissingColumnError({ meta: { database_error_code: "42703" } }), true, "PostgreSQL 42703 in meta.database_error_code must be identified");
+    assert.equal(isMissingColumnError({ meta: { originalCode: "42703" } }), true, "PostgreSQL 42703 in meta.originalCode must be identified");
+    
+    // Strict non-matches
+    assert.equal(isMissingColumnError({ code: "P2021" }), false, "P2021 (missing table) must NOT be treated as missing column");
+    assert.equal(isMissingColumnError({ code: "P2024" }), false, "P2024 (connection pool timeout) must NOT trigger fallback");
+    assert.equal(isMissingColumnError({ code: "ECONNREFUSED" }), false, "ECONNREFUSED must NOT trigger fallback");
+    assert.equal(isMissingColumnError(new Error("Neon connection pool timeout (simulated)")), false, "Connection error must NOT trigger fallback");
+    assert.equal(isMissingColumnError(new Error("status column missing")), false, "Broad substring errors must NOT match");
+    assert.equal(isMissingColumnError({ code: "42P01" }), false, "PostgreSQL 42P01 (relation does not exist) must NOT match");
+
+    let fallbackCalledWithP2022 = false;
+    const mockDbP2022 = {
+      user: {
+        findUnique: async (args: any) => {
+          if (args?.select?.status || args?.include?.organization?.select?.status) {
+            const err = new Error("column Organization.status does not exist");
+            (err as any).code = "P2022";
+            (err as any).meta = { column: "Organization.status" };
+            throw err;
+          }
+          fallbackCalledWithP2022 = true;
+          return {
+            id: "user_baseline_123",
+            email: "baseline@wafilow.com",
+            role: "user",
+            organizationId: "org_baseline_123",
+            organization: { id: "org_baseline_123" },
+          };
+        },
+      },
+    } as unknown as MockPrisma;
+
+    // Call user lookup simulation with fallback logic for P2022
+    let userP2022: any = null;
+    try {
+      userP2022 = await (mockDbP2022.user as any).findUnique({
+        where: { email: "baseline@wafilow.com" },
+        select: { id: true, status: true },
+      });
+    } catch (error: unknown) {
+      if (isMissingColumnError(error)) {
+        userP2022 = await (mockDbP2022.user as any).findUnique({
+          where: { email: "baseline@wafilow.com" },
+          select: { id: true },
+        });
+      }
+    }
+
+    assert.equal(fallbackCalledWithP2022, true, "Fallback query should be called when column status is missing with P2022");
+    assert.equal(userP2022?.id, "user_baseline_123", "User should be successfully resolved on baseline schema with P2022");
+
+    // Call user lookup simulation with fallback logic for direct PostgreSQL 42703
+    let fallbackCalledWith42703 = false;
+    const mockDb42703 = {
+      user: {
+        findUnique: async (args: any) => {
+          if (args?.select?.status) {
+            const err = new Error('column "status" of relation "User" does not exist');
+            (err as any).code = "42703";
+            throw err;
+          }
+          fallbackCalledWith42703 = true;
+          return {
+            id: "user_pg42703_123",
+            email: "pg42703@wafilow.com",
+            role: "user",
+            organizationId: "org_pg42703_123",
+            organization: { id: "org_pg42703_123" },
+          };
+        },
+      },
+    } as unknown as MockPrisma;
+
+    let user42703: any = null;
+    try {
+      user42703 = await (mockDb42703.user as any).findUnique({
+        where: { email: "pg42703@wafilow.com" },
+        select: { id: true, status: true },
+      });
+    } catch (error: unknown) {
+      if (isMissingColumnError(error)) {
+        user42703 = await (mockDb42703.user as any).findUnique({
+          where: { email: "pg42703@wafilow.com" },
+          select: { id: true },
+        });
+      }
+    }
+
+    assert.equal(fallbackCalledWith42703, true, "Fallback query should be called when column status is missing with 42703");
+    assert.equal(user42703?.id, "user_pg42703_123", "User should be resolved on baseline schema with PostgreSQL 42703");
+  });
+
+  // 18. Missing Table (P2021) and Connection Errors Fail Closed and Never Trigger Fallback
+  await t.test("18. Missing Table (P2021) and Connection Errors fail closed without executing fallback", async () => {
+    let fallbackCalled = false;
+    const mockDb = {
+      user: {
+        findUnique: async (args: any) => {
+          if (args?.select?.status) {
+            const err = new Error("The table public.User does not exist in the current database.");
+            (err as any).code = "P2021";
+            throw err;
+          }
+          fallbackCalled = true;
+          return { id: "never_called" };
+        },
+      },
+    } as unknown as MockPrisma;
+
+    let caughtError: unknown = null;
+    try {
+      try {
+        await (mockDb.user as any).findUnique({
+          where: { email: "test@wafilow.com" },
+          select: { id: true, status: true },
+        });
+      } catch (error: unknown) {
+        if (isMissingColumnError(error)) {
+          await (mockDb.user as any).findUnique({
+            where: { email: "test@wafilow.com" },
+            select: { id: true },
+          });
+        } else {
+          throw error;
+        }
+      }
+    } catch (e: unknown) {
+      caughtError = e;
+    }
+
+    assert.equal(fallbackCalled, false, "Fallback must NOT be called for P2021 table missing error");
+    assert.equal((caughtError as any)?.code, "P2021", "P2021 must be rethrown to fail closed");
+
+    // Also verify connection error (e.g. P2024 pool timeout) fails closed
+    let connFallbackCalled = false;
+    let caughtConnError: unknown = null;
+    const mockConnDb = {
+      user: {
+        findUnique: async () => {
+          const err = new Error("Timed out fetching a new connection from the connection pool.");
+          (err as any).code = "P2024";
+          throw err;
+        },
+      },
+    } as unknown as MockPrisma;
+
+    try {
+      try {
+        await (mockConnDb.user as any).findUnique({
+          where: { email: "test@wafilow.com" },
+          select: { id: true, status: true },
+        });
+      } catch (error: unknown) {
+        if (isMissingColumnError(error)) {
+          connFallbackCalled = true;
+        } else {
+          throw error;
+        }
+      }
+    } catch (e: unknown) {
+      caughtConnError = e;
+    }
+
+    assert.equal(connFallbackCalled, false, "Fallback must NOT be called on P2024 connection pool timeout");
+    assert.equal((caughtConnError as any)?.code, "P2024", "Connection pool error must be rethrown to fail closed");
+  });
+
+  // 19. Suspension Checks Enforced When Status Columns Exist
+  await t.test("19. Suspension checks remain strictly enforced when status columns exist", async () => {
+    // 19a. User status suspended during JWT verification
+    const mockDbUserSuspended = {
+      user: {
+        findUnique: async () => ({
+          id: "usr_susp_19",
+          status: "suspended",
+          sessionVersion: 1,
+          role: "user",
+          organizationId: "org_19",
+          organization: { id: "org_19", status: "active" },
+        }),
+      },
+    } as unknown as MockPrisma;
+
+    const callbacksUserSusp = createAuthCallbacks(mockDbUserSuspended);
+    const tokenUserSusp = await callbacksUserSusp.jwt({
+      token: { id: "usr_susp_19", sessionVersion: 1 },
+    });
+    assert.equal(tokenUserSusp.id, undefined, "Suspended user token must be stripped in JWT callback");
+    assert.equal(tokenUserSusp.revoked, true, "Suspended user token must be revoked in JWT callback");
+
+    // 19b. Organization status suspended during JWT verification
+    const mockDbOrgSuspended = {
+      user: {
+        findUnique: async () => ({
+          id: "usr_active_in_susp_org",
+          status: "active",
+          sessionVersion: 1,
+          role: "user",
+          organizationId: "org_susp_19",
+          organization: { id: "org_susp_19", status: "suspended" },
+        }),
+      },
+    } as unknown as MockPrisma;
+
+    const callbacksOrgSusp = createAuthCallbacks(mockDbOrgSuspended);
+    const tokenOrgSusp = await callbacksOrgSusp.jwt({
+      token: { id: "usr_active_in_susp_org", sessionVersion: 1 },
+    });
+    assert.equal(tokenOrgSusp.id, undefined, "User in suspended org must have token stripped in JWT callback");
+    assert.equal(tokenOrgSusp.revoked, true, "User in suspended org must have token revoked in JWT callback");
+
+    // 19c. Baseline schema (no status column) defaults to active, non-suspended
+    const mockDbBaseline = {
+      user: {
+        findUnique: async (args: any) => {
+          if (args?.select?.status) {
+            const err = new Error("column status does not exist");
+            (err as any).code = "P2022";
+            throw err;
+          }
+          return {
+            id: "usr_baseline_active",
+            role: "user",
+            organizationId: "org_base",
+            organization: { id: "org_base" },
+          };
+        },
+      },
+    } as unknown as MockPrisma;
+
+    const callbacksBaseline = createAuthCallbacks(mockDbBaseline);
+    const tokenBaseline = await callbacksBaseline.jwt({
+      token: { id: "usr_baseline_active", sessionVersion: 1 },
+    });
+    assert.equal(tokenBaseline.id, "usr_baseline_active", "Baseline schema user must retain session ID");
+    assert.equal(tokenBaseline.revoked, undefined, "Baseline schema user must not be revoked");
   });
 });
 

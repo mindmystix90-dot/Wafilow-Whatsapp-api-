@@ -145,10 +145,7 @@ export async function POST(req: NextRequest) {
       (req.headers.get("x-forwarded-host")
         ? `https://${req.headers.get("x-forwarded-host")}`
         : new URL(req.url).origin);
-    const origin =
-      rawOrigin.includes(".vercel.app") && !rawOrigin.includes("wafilow-whatsapp-api.vercel.app")
-        ? "https://wafilow-whatsapp-api.vercel.app"
-        : rawOrigin;
+    const origin = rawOrigin;
 
     // ==========================================================
     // CASE A: Meta Data Deletion Callback (signed_request)

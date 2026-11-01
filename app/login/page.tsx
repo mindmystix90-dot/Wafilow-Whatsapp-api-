@@ -30,7 +30,11 @@ function LoginForm() {
       });
 
       if (!loginRes || loginRes.error || !loginRes.ok) {
-        setError("Invalid email address or password. Please try again.");
+        if (loginRes?.error && loginRes.error !== "CredentialsSignin") {
+          setError(loginRes.error);
+        } else {
+          setError("Invalid email address or password. Please try again.");
+        }
         setIsSubmitting(false);
         return;
       }

@@ -169,9 +169,7 @@ export default function IntegrationsPage() {
 
   const webhookUrl =
     typeof window !== "undefined"
-      ? window.location.hostname.endsWith(".vercel.app") && window.location.hostname !== "wafilow-whatsapp-api.vercel.app"
-        ? "https://wafilow-whatsapp-api.vercel.app/api/webhook"
-        : `${window.location.origin}/api/webhook`
+      ? `${window.location.origin}/api/webhook`
       : "https://wafilow-whatsapp-api.vercel.app/api/webhook";
 
   // Fetch real WhatsApp config

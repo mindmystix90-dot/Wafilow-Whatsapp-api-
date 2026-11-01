@@ -40,11 +40,8 @@ export async function GET(req: NextRequest) {
     }
 
     const hostHeader = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3000";
-    const host = hostHeader.endsWith(".vercel.app") ? "wafilow-whatsapp-api.vercel.app" : hostHeader;
-    const proto = req.headers.get("x-forwarded-proto") || "https";
-    const webhookUrl = host.includes("localhost")
-      ? `${proto}://${host}/api/webhook`
-      : "https://wafilow-whatsapp-api.vercel.app/api/webhook";
+    const proto = req.headers.get("x-forwarded-proto") || (hostHeader.includes("localhost") ? "http" : "https");
+    const webhookUrl = `${proto}://${hostHeader}/api/webhook`;
 
     if (!orgId) {
       return NextResponse.json({
