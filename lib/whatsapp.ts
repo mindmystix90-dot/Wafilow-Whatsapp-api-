@@ -94,17 +94,26 @@ export async function getWhatsAppConnection(
 
   try {
     // 1. Try to find the explicit WhatsAppConnection model record for this environment
-    const connection = await prisma.whatsAppConnection.findUnique({
-      where: {
-        organizationId_environment: {
-          organizationId,
-          environment,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let connection: any = null;
+    try {
+      connection = await prisma.whatsAppConnection.findUnique({
+        where: {
+          organizationId_environment: {
+            organizationId,
+            environment,
+          },
         },
-      },
-      include: {
-        organization: true,
-      },
-    });
+        include: {
+          organization: {
+            select: { webhookVerifyToken: true },
+          },
+        },
+      });
+    } catch (connErr) {
+      console.warn("[getWhatsAppConnection] Notice querying WhatsAppConnection (proceeding to baseline fallback):", connErr);
+      connection = null;
+    }
 
     if (connection) {
       const accessToken = decryptToken(connection.accessToken || "");
@@ -273,39 +282,44 @@ export async function saveWhatsAppConnection({
 }): Promise<WhatsAppConfig> {
   const encryptedToken = accessToken ? encryptToken(accessToken) : undefined;
 
-  // 1. Upsert WhatsAppConnection record
-  await prisma.whatsAppConnection.upsert({
-    where: {
-      organizationId_environment: {
+  // 1. Upsert WhatsAppConnection record (if table exists)
+  try {
+    await prisma.whatsAppConnection.upsert({
+      where: {
+        organizationId_environment: {
+          organizationId,
+          environment,
+        },
+      },
+      update: {
+        ...(phoneNumberId !== undefined ? { phoneNumberId } : {}),
+        ...(wabaId !== undefined ? { wabaId } : {}),
+        ...(encryptedToken !== undefined ? { accessToken: encryptedToken } : {}),
+        ...(displayPhoneNumber !== undefined ? { displayPhoneNumber } : {}),
+        ...(verifiedName !== undefined ? { verifiedName } : {}),
+        status,
+        lastCheckedAt: new Date(),
+        lastError: null,
+        updatedAt: new Date(),
+      },
+      create: {
         organizationId,
         environment,
+        phoneNumberId: phoneNumberId || null,
+        wabaId: wabaId || null,
+        accessToken: encryptedToken || null,
+        displayPhoneNumber: displayPhoneNumber || null,
+        verifiedName: verifiedName || null,
+        status,
+        lastCheckedAt: new Date(),
       },
-    },
-    update: {
-      ...(phoneNumberId !== undefined ? { phoneNumberId } : {}),
-      ...(wabaId !== undefined ? { wabaId } : {}),
-      ...(encryptedToken !== undefined ? { accessToken: encryptedToken } : {}),
-      ...(displayPhoneNumber !== undefined ? { displayPhoneNumber } : {}),
-      ...(verifiedName !== undefined ? { verifiedName } : {}),
-      status,
-      lastCheckedAt: new Date(),
-      lastError: null,
-      updatedAt: new Date(),
-    },
-    create: {
-      organizationId,
-      environment,
-      phoneNumberId: phoneNumberId || null,
-      wabaId: wabaId || null,
-      accessToken: encryptedToken || null,
-      displayPhoneNumber: displayPhoneNumber || null,
-      verifiedName: verifiedName || null,
-      status,
-      lastCheckedAt: new Date(),
-    },
-  });
+      select: { id: true },
+    });
+  } catch (connErr) {
+    console.warn("[saveWhatsAppConnection] Notice upserting WhatsAppConnection (baseline schema active):", connErr);
+  }
 
-  // 2. If environment is production, keep legacy Organization columns in sync
+  // 2. If environment is production, keep legacy Organization columns in sync (select: { id: true } prevents querying missing Organization.status)
   if (environment === "production") {
     await prisma.organization.update({
       where: { id: organizationId },
@@ -315,6 +329,7 @@ export async function saveWhatsAppConnection({
         ...(encryptedToken !== undefined && encryptedToken !== null ? { accessToken: encryptedToken } : {}),
         ...(displayPhoneNumber !== undefined ? { displayPhoneNumber } : {}),
       },
+      select: { id: true },
     });
   }
 
@@ -334,33 +349,37 @@ export async function resolveOrganizationAndConnectionForWebhook(
   }
 
   try {
-    // 1. Check WhatsAppConnection table for phone or WABA match
-    if (phoneNumberId) {
-      const conn = await prisma.whatsAppConnection.findFirst({
-        where: { phoneNumberId },
-        include: { organization: true },
-      });
-      if (conn && conn.organization) {
-        return {
-          id: conn.organization.id,
-          name: conn.organization.name,
-          environment: conn.environment as WhatsAppEnvironment,
-        };
+    // 1. Check WhatsAppConnection table for phone or WABA match (safe against baseline schema without WhatsAppConnection table)
+    try {
+      if (phoneNumberId) {
+        const conn = await prisma.whatsAppConnection.findFirst({
+          where: { phoneNumberId },
+          include: { organization: { select: { id: true, name: true } } },
+        });
+        if (conn && conn.organization) {
+          return {
+            id: conn.organization.id,
+            name: conn.organization.name,
+            environment: conn.environment as WhatsAppEnvironment,
+          };
+        }
       }
-    }
 
-    if (wabaId) {
-      const conn = await prisma.whatsAppConnection.findFirst({
-        where: { wabaId },
-        include: { organization: true },
-      });
-      if (conn && conn.organization) {
-        return {
-          id: conn.organization.id,
-          name: conn.organization.name,
-          environment: conn.environment as WhatsAppEnvironment,
-        };
+      if (wabaId) {
+        const conn = await prisma.whatsAppConnection.findFirst({
+          where: { wabaId },
+          include: { organization: { select: { id: true, name: true } } },
+        });
+        if (conn && conn.organization) {
+          return {
+            id: conn.organization.id,
+            name: conn.organization.name,
+            environment: conn.environment as WhatsAppEnvironment,
+          };
+        }
       }
+    } catch (connErr) {
+      console.warn("[Webhook Resolver] WhatsAppConnection lookup notice:", connErr);
     }
 
     // 2. Fall back to legacy Organization / WhatsAppPhoneNumber tables (default: production)
@@ -371,6 +390,7 @@ export async function resolveOrganizationAndConnectionForWebhook(
     if (conditions.length > 0) {
       const existingOrg = await prisma.organization.findFirst({
         where: { OR: conditions },
+        select: { id: true, name: true },
       });
       if (existingOrg) {
         return { id: existingOrg.id, name: existingOrg.name, environment: "production" };
@@ -382,7 +402,7 @@ export async function resolveOrganizationAndConnectionForWebhook(
         where: { phoneNumberId },
         include: {
           wabaAccount: {
-            include: { organization: true },
+            include: { organization: { select: { id: true, name: true } } },
           },
         },
       });

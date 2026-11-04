@@ -1,10 +1,15 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import test from "node:test";
 import assert from "node:assert/strict";
 
 // Ensure dummy DATABASE_URL so Prisma client initializes in test mode without throwing
 process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://mock:mock@localhost:5432/mock";
 
-import { registerWhatsAppPhoneNumber } from "../lib/whatsapp";
+import {
+  registerWhatsAppPhoneNumber,
+  saveWhatsAppConnection,
+  getWhatsAppConnection,
+} from "../lib/whatsapp";
 import { prisma } from "../lib/prisma";
 import { encryptToken } from "../lib/crypto";
 
@@ -281,4 +286,98 @@ test("4. API Route Auth Protection", async (t) => {
     assert.equal(response.status, 401);
   });
 });
+
+test("5. WhatsApp Connection & Embedded Signup Baseline Schema Resilience", async (t) => {
+  await t.test("saveWhatsAppConnection succeeds on baseline schema with explicit select", async () => {
+    const origOrgUpdate = prisma.organization.update;
+    const origConnUpsert = prisma.whatsAppConnection.upsert;
+    const origConnFindUnique = prisma.whatsAppConnection.findUnique;
+    const origOrgFindUnique = prisma.organization.findUnique;
+
+    let orgUpdateArgs: any = null;
+    // @ts-expect-error mock assignment
+    prisma.organization.update = async (args: any) => {
+      orgUpdateArgs = args;
+      if (!args.select || args.select.status) {
+        throw new Error("The column Organization.status does not exist in the current database.");
+      }
+      return { id: args.where.id };
+    };
+
+    // Simulate WhatsAppConnection upsert succeeding or falling back
+    // @ts-expect-error mock assignment
+    prisma.whatsAppConnection.upsert = async (args: any) => ({ id: "mock-conn", ...args.create });
+    // @ts-expect-error mock assignment
+    prisma.whatsAppConnection.findUnique = async () => null;
+    // @ts-expect-error mock assignment
+    prisma.organization.findUnique = async () => ({
+      id: "org-base-test",
+      accessToken: encryptToken("mock-token"),
+      phoneNumberId: "1234567890",
+      wabaId: "987654321",
+      displayPhoneNumber: "+15550199",
+      webhookVerifyToken: "token_abc",
+    });
+
+    try {
+      const config = await saveWhatsAppConnection({
+        organizationId: "org-base-test",
+        environment: "production",
+        phoneNumberId: "1234567890",
+        wabaId: "987654321",
+        accessToken: "mock-token",
+        displayPhoneNumber: "+15550199",
+      });
+
+      assert.equal(config.isConfigured, true);
+      assert.equal(config.phoneNumberId, "1234567890");
+      assert.equal(config.wabaId, "987654321");
+      assert.equal(orgUpdateArgs?.select?.id, true, "Must have select: { id: true } to prevent querying Organization.status");
+    } finally {
+      prisma.organization.update = origOrgUpdate;
+      prisma.whatsAppConnection.upsert = origConnUpsert;
+      prisma.whatsAppConnection.findUnique = origConnFindUnique;
+      prisma.organization.findUnique = origOrgFindUnique;
+    }
+  });
+
+  await t.test("getWhatsAppConnection falls back to Organization when WhatsAppConnection table is absent", async () => {
+    const origConnFindUnique = prisma.whatsAppConnection.findUnique;
+    const origOrgFindUnique = prisma.organization.findUnique;
+
+    // Simulate P2021 table missing error on whatsAppConnection
+    // @ts-expect-error mock assignment
+    prisma.whatsAppConnection.findUnique = async () => {
+      const err = new Error("The table public.WhatsAppConnection does not exist in the current database.");
+      (err as any).code = "P2021";
+      throw err;
+    };
+
+    // @ts-expect-error mock assignment
+    prisma.organization.findUnique = async (args: any) => {
+      assert.ok(args.select, "Query must specify select block");
+      assert.equal(args.select.status, undefined, "Query must not request Organization.status");
+      return {
+        id: "org-fallback-1",
+        accessToken: encryptToken("fallback-token-secret"),
+        phoneNumberId: "9988776655",
+        wabaId: "1122334455",
+        displayPhoneNumber: "+15550123",
+        webhookVerifyToken: "token_xyz",
+      };
+    };
+
+    try {
+      const conn = await getWhatsAppConnection("org-fallback-1", "production");
+      assert.equal(conn.isConfigured, true);
+      assert.equal(conn.status, "connected");
+      assert.equal(conn.phoneNumberId, "9988776655");
+      assert.equal(conn.accessToken, "fallback-token-secret");
+    } finally {
+      prisma.whatsAppConnection.findUnique = origConnFindUnique;
+      prisma.organization.findUnique = origOrgFindUnique;
+    }
+  });
+});
+
 

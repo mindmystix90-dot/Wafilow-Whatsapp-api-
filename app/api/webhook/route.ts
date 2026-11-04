@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
   if (!tokenValid && token) {
     const org = await prisma.organization.findFirst({
       where: { webhookVerifyToken: token },
+      select: { id: true },
     });
     if (org) tokenValid = true;
   }

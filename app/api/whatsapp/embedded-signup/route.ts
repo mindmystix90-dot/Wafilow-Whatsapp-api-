@@ -350,7 +350,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Update Organization with encrypted credentials
+      // Update Organization with encrypted credentials (explicit select protects against missing Organization.status column)
       await tx.organization.update({
         where: { id: targetOrg.id },
         data: {
@@ -359,10 +359,13 @@ export async function POST(req: NextRequest) {
           accessToken: encryptToken(accessToken),
           displayPhoneNumber: displayPhone || undefined,
         },
+        select: { id: true },
       });
+    });
 
-      // Also upsert explicit WhatsAppConnection for production
-      await tx.whatsAppConnection.upsert({
+    // Best-effort sync to WhatsAppConnection table (safe against baseline schema without WhatsAppConnection table)
+    try {
+      await prisma.whatsAppConnection.upsert({
         where: {
           organizationId_environment: {
             organizationId: targetOrg.id,
@@ -391,8 +394,11 @@ export async function POST(req: NextRequest) {
           status: "connected",
           lastCheckedAt: new Date(),
         },
+        select: { id: true },
       });
-    });
+    } catch (connSyncErr) {
+      console.warn("[Embedded Signup] WhatsAppConnection sync notice (baseline schema active):", connSyncErr);
+    }
 
     console.log(
       `[Embedded Signup Success] Connected WABA: ${resolvedWabaId}, Phone: ${resolvedPhoneId} to org: ${targetOrg.id}`

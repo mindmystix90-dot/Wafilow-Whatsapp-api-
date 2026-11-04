@@ -194,6 +194,7 @@ export async function POST(req: NextRequest) {
                 phoneNumberId: null,
                 displayPhoneNumber: null,
               },
+              select: { id: true },
             });
           }
         } catch (dbErr) {
@@ -256,6 +257,7 @@ export async function POST(req: NextRequest) {
             displayPhoneNumber: null,
             webhookVerifyToken: null,
           },
+          select: { id: true },
         });
 
         // Delete associated WhatsAppBusinessAccount / PhoneNumbers for this organization

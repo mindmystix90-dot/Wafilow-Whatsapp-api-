@@ -221,6 +221,7 @@ export async function POST(req: NextRequest) {
       await prisma.organization.update({
         where: { id: targetOrg.id },
         data: { webhookVerifyToken: String(verifyToken).trim() },
+        select: { id: true },
       });
     }
 

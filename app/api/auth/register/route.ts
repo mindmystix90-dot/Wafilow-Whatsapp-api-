@@ -68,6 +68,7 @@ export async function POST(req: NextRequest) {
           wabaId: null,
           displayPhoneNumber: null,
         },
+        select: { id: true },
       });
       const targetOrgId = newOrg.id;
 
