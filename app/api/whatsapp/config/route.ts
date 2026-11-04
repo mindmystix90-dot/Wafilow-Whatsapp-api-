@@ -81,7 +81,10 @@ export async function GET(req: NextRequest) {
     const [prodConfig, sandConfig, org] = await Promise.all([
       getWhatsAppConnection(orgId, "production"),
       getWhatsAppConnection(orgId, "sandbox"),
-      prisma.organization.findUnique({ where: { id: orgId } }),
+      prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { id: true, webhookVerifyToken: true },
+      }),
     ]);
 
     const activeConfig = targetEnv === "sandbox" ? sandConfig : prodConfig;
@@ -165,7 +168,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const targetOrg = await prisma.organization.findUnique({ where: { id: userOrgId } });
+    const targetOrg = await prisma.organization.findUnique({
+      where: { id: userOrgId },
+      select: { id: true },
+    });
     if (!targetOrg) {
       return NextResponse.json(
         { success: false, error: "Organization not found for authenticated user." },

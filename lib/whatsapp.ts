@@ -132,6 +132,14 @@ export async function getWhatsAppConnection(
     if (environment === "production") {
       const org = await prisma.organization.findUnique({
         where: { id: organizationId },
+        select: {
+          id: true,
+          accessToken: true,
+          phoneNumberId: true,
+          wabaId: true,
+          displayPhoneNumber: true,
+          webhookVerifyToken: true,
+        },
       });
 
       if (org) {
@@ -193,6 +201,10 @@ export async function getWhatsAppConnection(
     // NEVER fall back to production credentials!
     const org = await prisma.organization.findUnique({
       where: { id: organizationId },
+      select: {
+        id: true,
+        webhookVerifyToken: true,
+      },
     });
 
     return {

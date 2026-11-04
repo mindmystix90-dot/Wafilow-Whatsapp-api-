@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAuthCallbacks, isMissingColumnError } from "../lib/auth";
+import bcrypt from "bcryptjs";
+import { createAuthCallbacks, createAuthorize, isMissingColumnError } from "../lib/auth";
 import { createAuthGuards, AuthError } from "../lib/admin-auth";
 import type { prisma } from "../lib/prisma";
 
@@ -956,6 +957,620 @@ test("Wafilow Hardened Security & Auth Matrix", async (t) => {
     });
     assert.equal(tokenBaseline.id, "usr_baseline_active", "Baseline schema user must retain session ID");
     assert.equal(tokenBaseline.revoked, undefined, "Baseline schema user must not be revoked");
+  });
+
+  // 20. Regression Suite: requireActiveUserSession & requireSuperAdmin P2022 Missing-Column Handling
+  await t.test("20. requireActiveUserSession and requireSuperAdmin handle P2022 User.status error with baseline fallback", async (sub) => {
+    // 20a. Exact production error: P2022 "The column User.status does not exist in the current database."
+    await sub.test("20a. requireActiveUserSession succeeds on P2022 User.status via baseline fallback", async () => {
+      let fallbackTriggered = false;
+      const mockDbP2022 = {
+        user: {
+          findUnique: async (args: any) => {
+            if (args?.select?.status) {
+              const err = new Error("The column User.status does not exist in the current database.");
+              (err as any).code = "P2022";
+              (err as any).meta = { column: "User.status", modelName: "User" };
+              throw err;
+            }
+            fallbackTriggered = true;
+            return {
+              id: "usr_prod_123",
+              email: "operator@wafilow.com",
+              role: "user",
+              organizationId: "org_prod_456",
+              organization: { id: "org_prod_456" },
+            };
+          },
+        },
+      } as unknown as MockPrisma;
+
+      const guards = createAuthGuards({
+        getSession: async () => ({
+          user: { id: "usr_prod_123", email: "operator@wafilow.com", role: "user" },
+          expires: "2099-01-01",
+        }),
+        db: mockDbP2022,
+      });
+
+      const activeUser = await guards.requireActiveUserSession();
+      assert.equal(fallbackTriggered, true, "Fallback query must be executed when User.status triggers P2022");
+      assert.equal(activeUser.userId, "usr_prod_123");
+      assert.equal(activeUser.userEmail, "operator@wafilow.com");
+      assert.equal(activeUser.userRole, "user");
+      assert.equal(activeUser.organizationId, "org_prod_456");
+    });
+
+    // 20b. Direct PostgreSQL error 42703 triggers baseline fallback
+    await sub.test("20b. requireActiveUserSession succeeds on PostgreSQL 42703 undefined_column via baseline fallback", async () => {
+      let fallbackTriggered = false;
+      const mockDb42703 = {
+        user: {
+          findUnique: async (args: any) => {
+            if (args?.select?.status) {
+              const err = new Error('column "status" does not exist');
+              (err as any).code = "42703";
+              throw err;
+            }
+            fallbackTriggered = true;
+            return {
+              id: "usr_pg_123",
+              email: "pg@wafilow.com",
+              role: "user",
+              organizationId: "org_pg_456",
+              organization: { id: "org_pg_456" },
+            };
+          },
+        },
+      } as unknown as MockPrisma;
+
+      const guards = createAuthGuards({
+        getSession: async () => ({
+          user: { id: "usr_pg_123", email: "pg@wafilow.com", role: "user" },
+          expires: "2099-01-01",
+        }),
+        db: mockDb42703,
+      });
+
+      const activeUser = await guards.requireActiveUserSession();
+      assert.equal(fallbackTriggered, true, "Fallback query must execute on PostgreSQL 42703");
+      assert.equal(activeUser.userId, "usr_pg_123");
+      assert.equal(activeUser.organizationId, "org_pg_456");
+    });
+
+    // 20c. P2021 (missing table) must FAIL CLOSED and NEVER execute baseline fallback
+    await sub.test("20c. requireActiveUserSession fails closed (503) on P2021 table missing error without fallback", async () => {
+      let fallbackTriggered = false;
+      const mockDbP2021 = {
+        user: {
+          findUnique: async (args: any) => {
+            if (args?.select?.status) {
+              const err = new Error("The table public.User does not exist in the current database.");
+              (err as any).code = "P2021";
+              throw err;
+            }
+            fallbackTriggered = true;
+            return { id: "never_called" };
+          },
+        },
+      } as unknown as MockPrisma;
+
+      const guards = createAuthGuards({
+        getSession: async () => ({
+          user: { id: "usr_table_missing", email: "user@wafilow.com" },
+          expires: "2099-01-01",
+        }),
+        db: mockDbP2021,
+      });
+
+      await assert.rejects(
+        async () => guards.requireActiveUserSession(),
+        (err: AuthError) => err.statusCode === 503,
+        "P2021 must fail closed with 503 AuthError"
+      );
+      assert.equal(fallbackTriggered, false, "Fallback must NOT be called for P2021 table missing error");
+    });
+
+    // 20d. Connection timeout must FAIL CLOSED and NEVER execute baseline fallback
+    await sub.test("20d. requireActiveUserSession fails closed (503) on connection failure without fallback", async () => {
+      let fallbackTriggered = false;
+      const mockDbConn = {
+        user: {
+          findUnique: async (args: any) => {
+            if (args?.select?.status) {
+              const err = new Error("Connection pool timeout");
+              (err as any).code = "P2024";
+              throw err;
+            }
+            fallbackTriggered = true;
+            return { id: "never_called" };
+          },
+        },
+      } as unknown as MockPrisma;
+
+      const guards = createAuthGuards({
+        getSession: async () => ({
+          user: { id: "usr_conn_err", email: "user@wafilow.com" },
+          expires: "2099-01-01",
+        }),
+        db: mockDbConn,
+      });
+
+      await assert.rejects(
+        async () => guards.requireActiveUserSession(),
+        (err: AuthError) => err.statusCode === 503,
+        "Connection timeout must fail closed with 503 AuthError"
+      );
+      assert.equal(fallbackTriggered, false, "Fallback must NOT be called for connection error");
+    });
+
+    // 20e. requireSuperAdmin succeeds on P2022 via baseline fallback
+    await sub.test("20e. requireSuperAdmin succeeds on P2022 User.status via baseline fallback", async () => {
+      let fallbackTriggered = false;
+      const mockDbAdmin = {
+        user: {
+          findUnique: async (args: any) => {
+            if (args?.select?.status) {
+              const err = new Error("The column User.status does not exist in the current database.");
+              (err as any).code = "P2022";
+              throw err;
+            }
+            fallbackTriggered = true;
+            return {
+              id: "usr_admin_prod",
+              email: "admin@wafilow.com",
+              role: "super_admin",
+            };
+          },
+        },
+      } as unknown as MockPrisma;
+
+      const guards = createAuthGuards({
+        getSession: async () => ({
+          user: { id: "usr_admin_prod", email: "admin@wafilow.com", role: "super_admin" },
+          expires: "2099-01-01",
+        }),
+        db: mockDbAdmin,
+      });
+
+      const adminUser = await guards.requireSuperAdmin();
+      assert.equal(fallbackTriggered, true, "requireSuperAdmin must execute fallback on P2022");
+      assert.equal(adminUser.adminId, "usr_admin_prod");
+      assert.equal(adminUser.adminEmail, "admin@wafilow.com");
+    });
+  });
+
+  // 21. NextAuth Credentials authorize() Security & Baseline Fallback Suite
+  await t.test("21. NextAuth Credentials authorize() security and baseline fallback suite", async (sub) => {
+    const validPassword = "SecurePassword123!";
+    const passwordHash = await bcrypt.hash(validPassword, 6);
+
+    // 21a. Missing credentials return null
+    await sub.test("21a. Missing credentials (no email or password) returns null", async () => {
+      const authorize = createAuthorize({} as any);
+      assert.equal(await authorize(undefined), null);
+      assert.equal(await authorize({ email: "", password: "pwd" }), null);
+      assert.equal(await authorize({ email: "user@test.com", password: "" }), null);
+    });
+
+    // 21b. Non-existent user returns null
+    await sub.test("21b. Non-existent user returns null without authenticating", async () => {
+      const mockDb = {
+        user: { findUnique: async () => null },
+      };
+      const authorize = createAuthorize(mockDb as any);
+      const res = await authorize({ email: "nonexistent@wafilow.com", password: validPassword });
+      assert.equal(res, null, "Must return null when user does not exist in DB");
+    });
+
+    // 21c. User without password returns null
+    await sub.test("21c. User without password hash returns null", async () => {
+      const mockDb = {
+        user: {
+          findUnique: async () => ({
+            id: "usr_no_pwd",
+            email: "nopwd@wafilow.com",
+            password: null,
+            role: "user",
+          }),
+        },
+      };
+      const authorize = createAuthorize(mockDb as any);
+      const res = await authorize({ email: "nopwd@wafilow.com", password: validPassword });
+      assert.equal(res, null, "Must return null when user has no password");
+    });
+
+    // 21d. Incorrect password returns null (bcrypt check enforced)
+    await sub.test("21d. Incorrect password returns null (bcrypt verification enforced)", async () => {
+      const mockDb = {
+        user: {
+          findUnique: async () => ({
+            id: "usr_active_auth",
+            email: "active@wafilow.com",
+            password: passwordHash,
+            role: "user",
+            status: "active",
+            organizationId: "org_active",
+            organization: { id: "org_active", status: "active" },
+          }),
+        },
+      };
+      const authorize = createAuthorize(mockDb as any);
+      const res = await authorize({ email: "active@wafilow.com", password: "WRONG_PASSWORD" });
+      assert.equal(res, null, "Must return null when password does not match bcrypt hash");
+    });
+
+    // 21e. Valid password succeeds on modern schema
+    await sub.test("21e. Valid password succeeds on modern schema", async () => {
+      const mockDb = {
+        user: {
+          findUnique: async () => ({
+            id: "usr_valid",
+            name: "Test User",
+            email: "valid@wafilow.com",
+            password: passwordHash,
+            role: "user",
+            status: "active",
+            sessionVersion: 2,
+            organizationId: "org_valid",
+            organization: { id: "org_valid", status: "active" },
+          }),
+        },
+      };
+      const authorize = createAuthorize(mockDb as any);
+      const res = await authorize({ email: "valid@wafilow.com", password: validPassword });
+      assert.ok(res);
+      assert.equal(res.id, "usr_valid");
+      assert.equal(res.email, "valid@wafilow.com");
+      assert.equal(res.role, "user");
+      assert.equal(res.organizationId, "org_valid");
+      assert.equal(res.sessionVersion, 2);
+    });
+
+    // 21f. Suspended user throws error
+    await sub.test("21f. Suspended user throws account suspended error", async () => {
+      const mockDb = {
+        user: {
+          findUnique: async () => ({
+            id: "usr_suspended_auth",
+            email: "suspended@wafilow.com",
+            password: passwordHash,
+            role: "user",
+            status: "suspended",
+            organizationId: "org_valid",
+            organization: { id: "org_valid", status: "active" },
+          }),
+        },
+      };
+      const authorize = createAuthorize(mockDb as any);
+      await assert.rejects(
+        async () => authorize({ email: "suspended@wafilow.com", password: validPassword }),
+        /Your account has been suspended/
+      );
+    });
+
+    // 21g. Suspended organization throws error for customer login
+    await sub.test("21g. Suspended organization throws error for customer login", async () => {
+      const mockDb = {
+        user: {
+          findUnique: async () => ({
+            id: "usr_org_susp",
+            email: "cust@wafilow.com",
+            password: passwordHash,
+            role: "user",
+            status: "active",
+            organizationId: "org_susp",
+            organization: { id: "org_susp", status: "suspended" },
+          }),
+        },
+      };
+      const authorize = createAuthorize(mockDb as any);
+      await assert.rejects(
+        async () => authorize({ email: "cust@wafilow.com", password: validPassword }),
+        /Your organization workspace has been suspended/
+      );
+    });
+
+    // 21h. Customer login without organization throws error
+    await sub.test("21h. Customer user without organization throws organization required error", async () => {
+      const mockDb = {
+        user: {
+          findUnique: async () => ({
+            id: "usr_no_org",
+            email: "noorg@wafilow.com",
+            password: passwordHash,
+            role: "user",
+            status: "active",
+            organizationId: null,
+            organization: null,
+          }),
+        },
+      };
+      const authorize = createAuthorize(mockDb as any);
+      await assert.rejects(
+        async () => authorize({ email: "noorg@wafilow.com", password: validPassword }),
+        /Your account is not associated with an active organization/
+      );
+    });
+
+    // 21i. Admin portal login by non-super-admin returns null (anti-enumeration)
+    await sub.test("21i. Admin portal login by non-super-admin returns null", async () => {
+      const mockDb = {
+        user: {
+          findUnique: async () => ({
+            id: "usr_regular",
+            email: "regular@wafilow.com",
+            password: passwordHash,
+            role: "user", // NOT super_admin
+            status: "active",
+            organizationId: "org_valid",
+            organization: { id: "org_valid", status: "active" },
+          }),
+        },
+      };
+      const authorize = createAuthorize(mockDb as any);
+      const res = await authorize({
+        email: "regular@wafilow.com",
+        password: validPassword,
+        isAdminPortal: "true",
+      });
+      assert.equal(res, null, "Must return null to prevent admin portal enumeration");
+    });
+
+    // 21j. Admin portal login by super-admin succeeds
+    await sub.test("21j. Admin portal login by super-admin succeeds", async () => {
+      const mockDb = {
+        user: {
+          findUnique: async () => ({
+            id: "usr_admin",
+            email: "admin@wafilow.com",
+            password: passwordHash,
+            role: "super_admin",
+            status: "active",
+            organizationId: null,
+            organization: null,
+          }),
+        },
+      };
+      const authorize = createAuthorize(mockDb as any);
+      const res = await authorize({
+        email: "admin@wafilow.com",
+        password: validPassword,
+        isAdminPortal: "true",
+      });
+      assert.ok(res);
+      assert.equal(res.id, "usr_admin");
+      assert.equal(res.role, "super_admin");
+    });
+
+    // 21k. Baseline schema P2022 triggers fallback, validates bcrypt, and succeeds
+    await sub.test("21k. Baseline schema P2022 triggers fallback, validates bcrypt, and succeeds", async () => {
+      let fallbackTriggered = false;
+      const mockDbBaseline = {
+        user: {
+          findUnique: async (args: any) => {
+            if (args?.select?.status) {
+              const err = new Error("The column User.status does not exist in the current database.");
+              (err as any).code = "P2022";
+              (err as any).meta = { column: "User.status", modelName: "User" };
+              throw err;
+            }
+            fallbackTriggered = true;
+            return {
+              id: "usr_baseline_auth",
+              name: "Baseline User",
+              email: "baseline@wafilow.com",
+              password: passwordHash,
+              role: "user",
+              organizationId: "org_base_1",
+              organization: { id: "org_base_1" },
+            };
+          },
+        },
+      };
+
+      const authorize = createAuthorize(mockDbBaseline as any);
+      const res = await authorize({ email: "baseline@wafilow.com", password: validPassword });
+      assert.equal(fallbackTriggered, true, "Fallback query must be triggered on P2022");
+      assert.ok(res);
+      assert.equal(res.id, "usr_baseline_auth");
+      assert.equal(res.sessionVersion, 1, "sessionVersion must default to 1 on baseline schema");
+      assert.equal(res.organizationId, "org_base_1");
+    });
+
+    // 21l. Baseline schema P2022 with incorrect password returns null (bcrypt check enforced)
+    await sub.test("21l. Baseline schema P2022 with incorrect password returns null (bcrypt check enforced)", async () => {
+      let fallbackTriggered = false;
+      const mockDbBaseline = {
+        user: {
+          findUnique: async (args: any) => {
+            if (args?.select?.status) {
+              const err = new Error("The column User.status does not exist in the current database.");
+              (err as any).code = "P2022";
+              throw err;
+            }
+            fallbackTriggered = true;
+            return {
+              id: "usr_baseline_auth",
+              email: "baseline@wafilow.com",
+              password: passwordHash,
+              role: "user",
+              organizationId: "org_base_1",
+              organization: { id: "org_base_1" },
+            };
+          },
+        },
+      };
+
+      const authorize = createAuthorize(mockDbBaseline as any);
+      const res = await authorize({ email: "baseline@wafilow.com", password: "WRONG_PASSWORD" });
+      assert.equal(fallbackTriggered, true, "Fallback query executed");
+      assert.equal(res, null, "Must return null when password is wrong, even under baseline fallback");
+    });
+
+    // 21m. Baseline schema P2022 with non-existent user returns null
+    await sub.test("21m. Baseline schema P2022 with non-existent user returns null", async () => {
+      const mockDbBaseline = {
+        user: {
+          findUnique: async (args: any) => {
+            if (args?.select?.status) {
+              const err = new Error("The column User.status does not exist in the current database.");
+              (err as any).code = "P2022";
+              throw err;
+            }
+            return null; // User does not exist
+          },
+        },
+      };
+
+      const authorize = createAuthorize(mockDbBaseline as any);
+      const res = await authorize({ email: "ghost@wafilow.com", password: validPassword });
+      assert.equal(res, null, "Must return null when user does not exist in baseline schema");
+    });
+
+    // 21n. Baseline schema P2022 for customer user without organization throws error
+    await sub.test("21n. Baseline schema P2022 for customer user without organization throws error", async () => {
+      const mockDbBaseline = {
+        user: {
+          findUnique: async (args: any) => {
+            if (args?.select?.status) {
+              const err = new Error("The column User.status does not exist in the current database.");
+              (err as any).code = "P2022";
+              throw err;
+            }
+            return {
+              id: "usr_no_org_base",
+              email: "noorg@wafilow.com",
+              password: passwordHash,
+              role: "user",
+              organizationId: null,
+              organization: null,
+            };
+          },
+        },
+      };
+
+      const authorize = createAuthorize(mockDbBaseline as any);
+      await assert.rejects(
+        async () => authorize({ email: "noorg@wafilow.com", password: validPassword }),
+        /Your account is not associated with an active organization/,
+        "Customer user without org must be rejected in baseline schema"
+      );
+    });
+
+    // 21o. Baseline schema P2022 admin portal attempt by non-super-admin returns null
+    await sub.test("21o. Baseline schema P2022 admin portal attempt by non-super-admin returns null", async () => {
+      const mockDbBaseline = {
+        user: {
+          findUnique: async (args: any) => {
+            if (args?.select?.status) {
+              const err = new Error("The column User.status does not exist in the current database.");
+              (err as any).code = "P2022";
+              throw err;
+            }
+            return {
+              id: "usr_cust_base",
+              email: "cust@wafilow.com",
+              password: passwordHash,
+              role: "user",
+              organizationId: "org_base_1",
+              organization: { id: "org_base_1" },
+            };
+          },
+        },
+      };
+
+      const authorize = createAuthorize(mockDbBaseline as any);
+      const res = await authorize({
+        email: "cust@wafilow.com",
+        password: validPassword,
+        isAdminPortal: "true",
+      });
+      assert.equal(res, null, "Must return null for non-admin trying to access admin portal under baseline");
+    });
+
+    // 21p. PostgreSQL 42703 triggers fallback and succeeds
+    await sub.test("21p. Direct PostgreSQL 42703 triggers fallback and succeeds", async () => {
+      let fallbackTriggered = false;
+      const mockDbPg = {
+        user: {
+          findUnique: async (args: any) => {
+            if (args?.select?.status) {
+              const err = new Error('column "status" does not exist');
+              (err as any).code = "42703";
+              throw err;
+            }
+            fallbackTriggered = true;
+            return {
+              id: "usr_pg_auth",
+              email: "pg@wafilow.com",
+              password: passwordHash,
+              role: "user",
+              organizationId: "org_pg",
+              organization: { id: "org_pg" },
+            };
+          },
+        },
+      };
+
+      const authorize = createAuthorize(mockDbPg as any);
+      const res = await authorize({ email: "pg@wafilow.com", password: validPassword });
+      assert.equal(fallbackTriggered, true, "Fallback query must trigger on 42703");
+      assert.ok(res);
+      assert.equal(res.id, "usr_pg_auth");
+    });
+
+    // 21q. Non-column error (P2021 table missing) fails closed with 503 unavailable
+    await sub.test("21q. P2021 table missing error fails closed without executing fallback", async () => {
+      let fallbackTriggered = false;
+      const mockDbP2021 = {
+        user: {
+          findUnique: async (args: any) => {
+            if (args?.select?.status) {
+              const err = new Error("The table public.User does not exist in the current database.");
+              (err as any).code = "P2021";
+              throw err;
+            }
+            fallbackTriggered = true;
+            return { id: "never_called" };
+          },
+        },
+      };
+
+      const authorize = createAuthorize(mockDbP2021 as any);
+      await assert.rejects(
+        async () => authorize({ email: "user@wafilow.com", password: validPassword }),
+        /temporarily unavailable/,
+        "P2021 must fail closed with unavailable error"
+      );
+      assert.equal(fallbackTriggered, false, "Fallback must NOT be executed on P2021");
+    });
+
+    // 21r. Connection error fails closed without executing fallback
+    await sub.test("21r. Connection error fails closed without executing fallback", async () => {
+      let fallbackTriggered = false;
+      const mockDbConn = {
+        user: {
+          findUnique: async (args: any) => {
+            if (args?.select?.status) {
+              const err = new Error("Connection pool timeout");
+              (err as any).code = "P2024";
+              throw err;
+            }
+            fallbackTriggered = true;
+            return { id: "never_called" };
+          },
+        },
+      };
+
+      const authorize = createAuthorize(mockDbConn as any);
+      await assert.rejects(
+        async () => authorize({ email: "user@wafilow.com", password: validPassword }),
+        /temporarily unavailable/,
+        "Connection error must fail closed with unavailable error"
+      );
+      assert.equal(fallbackTriggered, false, "Fallback must NOT be executed on connection error");
+    });
   });
 });
 

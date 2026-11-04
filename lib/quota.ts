@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { isMissingColumnError } from "@/lib/db-errors";
 
 export interface QuotaInfo {
   organizationId: string;
@@ -166,15 +167,42 @@ export async function checkAndReserveQuota(
       },
     });
   } catch (error) {
-    console.error("[Quota Check] Database verification failed:", error instanceof Error ? error.message : "Unknown error");
-    return {
-      allowed: false,
-      reason: "DATABASE_ERROR",
-      error: "Quota verification temporarily unavailable. Failing closed.",
-      limit: 0,
-      used: 0,
-      remaining: 0,
-    };
+    if (isMissingColumnError(error)) {
+      try {
+        org = await db.organization.findUnique({
+          where: { id: organizationId },
+          select: {
+            id: true,
+            name: true,
+            planTier: true,
+            monthlyLimit: true,
+          },
+        });
+        if (org) {
+          (org as { status?: string }).status = "active";
+        }
+      } catch (fallbackError) {
+        console.error("[Quota Check] Baseline fallback query failed:", fallbackError);
+        return {
+          allowed: false,
+          reason: "DATABASE_ERROR",
+          error: "Quota verification temporarily unavailable. Failing closed.",
+          limit: 0,
+          used: 0,
+          remaining: 0,
+        };
+      }
+    } else {
+      console.error("[Quota Check] Database verification failed:", error instanceof Error ? error.message : "Unknown error");
+      return {
+        allowed: false,
+        reason: "DATABASE_ERROR",
+        error: "Quota verification temporarily unavailable. Failing closed.",
+        limit: 0,
+        used: 0,
+        remaining: 0,
+      };
+    }
   }
 
   if (!org) {

@@ -1,6 +1,7 @@
 import { getServerSession, Session } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
+import { isMissingColumnError } from "@/lib/db-errors";
 import { prisma } from "@/lib/prisma";
 
 export class AuthError extends Error {
@@ -54,15 +55,31 @@ export function createAuthGuards(deps: AuthGuardDependencies) {
           select: { id: true, email: true, role: true, status: true, sessionVersion: true },
         });
       } catch (error) {
-        console.error("[requireSuperAdmin] Database lookup failed:", error);
-        throw new AuthError("Authentication verification temporarily unavailable. Please try again later.", 503);
+        if (isMissingColumnError(error)) {
+          try {
+            dbUser = await deps.db.user.findUnique({
+              where: { id: session.user.id },
+              select: { id: true, email: true, role: true },
+            });
+            if (dbUser) {
+              dbUser.status = "active";
+              dbUser.sessionVersion = 1;
+            }
+          } catch (fallbackError) {
+            console.error("[requireSuperAdmin] Baseline fallback lookup failed:", fallbackError);
+            throw new AuthError("Authentication verification temporarily unavailable. Please try again later.", 503);
+          }
+        } else {
+          console.error("[requireSuperAdmin] Database lookup failed:", error);
+          throw new AuthError("Authentication verification temporarily unavailable. Please try again later.", 503);
+        }
       }
 
       if (!dbUser || dbUser.role !== "super_admin") {
         throw new AuthError("Forbidden: Super Admin privilege required", 403);
       }
 
-      if (dbUser.status !== "active") {
+      if (dbUser.status && dbUser.status !== "active") {
         throw new AuthError("Forbidden: Administrator account is suspended", 403);
       }
 
@@ -107,15 +124,42 @@ export function createAuthGuards(deps: AuthGuardDependencies) {
           },
         });
       } catch (error) {
-        console.error("[requireActiveUserSession] Database lookup failed:", error);
-        throw new AuthError("Authentication verification temporarily unavailable. Please try again later.", 503);
+        if (isMissingColumnError(error)) {
+          try {
+            dbUser = await deps.db.user.findUnique({
+              where: { id: session.user.id },
+              select: {
+                id: true,
+                email: true,
+                role: true,
+                organizationId: true,
+                organization: {
+                  select: { id: true },
+                },
+              },
+            });
+            if (dbUser) {
+              dbUser.status = "active";
+              dbUser.sessionVersion = 1;
+              if (dbUser.organization) {
+                dbUser.organization.status = "active";
+              }
+            }
+          } catch (fallbackError) {
+            console.error("[requireActiveUserSession] Baseline fallback query failed:", fallbackError);
+            throw new AuthError("Authentication verification temporarily unavailable. Please try again later.", 503);
+          }
+        } else {
+          console.error("[requireActiveUserSession] Database lookup failed:", error);
+          throw new AuthError("Authentication verification temporarily unavailable. Please try again later.", 503);
+        }
       }
 
       if (!dbUser) {
         throw new AuthError("Unauthorized: User not found", 401);
       }
 
-      if (dbUser.status !== "active") {
+      if (dbUser.status && dbUser.status !== "active") {
         throw new AuthError("Forbidden: Account is suspended", 403);
       }
 
@@ -139,8 +183,25 @@ export function createAuthGuards(deps: AuthGuardDependencies) {
           });
           orgStatus = org?.status ?? "active";
         } catch (error) {
-          console.error("[requireActiveUserSession] Organization lookup failed:", error);
-          throw new AuthError("Authentication verification temporarily unavailable. Please try again later.", 503);
+          if (isMissingColumnError(error)) {
+            try {
+              const org = await deps.db.organization.findUnique({
+                where: { id: dbUser.organizationId },
+                select: { id: true },
+              });
+              if (!org) {
+                throw new AuthError("Bad Request: Organization not found", 400);
+              }
+              orgStatus = "active";
+            } catch (fallbackOrgErr) {
+              if (fallbackOrgErr instanceof AuthError) throw fallbackOrgErr;
+              console.error("[requireActiveUserSession] Baseline organization lookup failed:", fallbackOrgErr);
+              throw new AuthError("Authentication verification temporarily unavailable. Please try again later.", 503);
+            }
+          } else {
+            console.error("[requireActiveUserSession] Organization lookup failed:", error);
+            throw new AuthError("Authentication verification temporarily unavailable. Please try again later.", 503);
+          }
         }
       }
 

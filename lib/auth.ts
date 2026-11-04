@@ -31,37 +31,8 @@ interface CustomToken extends JWT {
   revoked?: boolean;
 }
 
-/**
- * Detects whether a database error is specifically due to a missing column (Prisma P2022 or PostgreSQL 42703),
- * indicating that the database is running on the pre-migration baseline schema.
- * Strictly excludes P2021 (missing table), connection errors, and avoids broad substring matching.
- */
-export function isMissingColumnError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const err = error as {
-    code?: unknown;
-    meta?: Record<string, unknown>;
-  };
-
-  // Standard Prisma missing column error code
-  if (err.code === "P2022") return true;
-
-  // Direct PostgreSQL driver SQLSTATE for undefined_column (e.g. pg, postgres.js, Neon serverless)
-  if (err.code === "42703") return true;
-
-  // Structured metadata from database wrappers or driver errors
-  if (err.meta && typeof err.meta === "object") {
-    if (
-      err.meta.code === "42703" ||
-      err.meta.database_error_code === "42703" ||
-      err.meta.originalCode === "42703"
-    ) {
-      return true;
-    }
-  }
-
-  return false;
-}
+export { isMissingColumnError } from "./db-errors";
+import { isMissingColumnError } from "./db-errors";
 
 /**
  * Dependency-Injected Callbacks Factory for NextAuth.
@@ -213,6 +184,126 @@ export function createAuthCallbacks(db: any = prisma) {
 
 export const defaultCallbacks = createAuthCallbacks(prisma);
 
+/**
+ * Dependency-Injected Authorize Credentials Handler for NextAuth CredentialsProvider.
+ * Supports clean testing with mocked databases without ESM mutation.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createAuthorize(db: any = prisma) {
+  return async function authorize(credentials: Record<string, string> | undefined) {
+    if (!credentials?.email || !credentials?.password) {
+      return null;
+    }
+
+    const normalizedEmail = credentials.email.toLowerCase().trim();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let user: any;
+    try {
+      // Primary query requesting full production fields (including status/sessionVersion)
+      user = await db.user.findUnique({
+        where: { email: normalizedEmail },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          image: true,
+          password: true,
+          role: true,
+          status: true,
+          sessionVersion: true,
+          organizationId: true,
+          organization: {
+            select: { id: true, status: true },
+          },
+        },
+      });
+    } catch (error: unknown) {
+      // Precise fallback: only trigger if column is missing (P2022 / 42703).
+      // P2021 (missing table) or other database errors will fail closed.
+      if (isMissingColumnError(error)) {
+        try {
+          // Fallback query selects ONLY columns that exist in the pre-migration baseline schema:
+          // User: id, name, email, image, password, role, organizationId
+          // Organization: id
+          user = await db.user.findUnique({
+            where: { email: normalizedEmail },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              password: true,
+              role: true,
+              organizationId: true,
+              organization: {
+                select: { id: true },
+              },
+            },
+          });
+        } catch (fallbackErr) {
+          console.error("[NextAuth authorize] Fallback database lookup failed:", fallbackErr);
+          throw new Error("Authentication service is temporarily unavailable. Please try again later.");
+        }
+      } else {
+        console.error("[NextAuth authorize] Database lookup failed:", error);
+        throw new Error("Authentication service is temporarily unavailable. Please try again later.");
+      }
+    }
+
+    // 1. Account existence and password presence check
+    if (!user || !user.password) {
+      return null;
+    }
+
+    // 2. Strict Bcrypt Verification - Must complete before authentication
+    const isValid = await bcrypt.compare(credentials.password, user.password);
+    if (!isValid) {
+      return null;
+    }
+
+    // 3. User Suspension Check (when status column exists in DB)
+    if (user.status && user.status !== "active") {
+      throw new Error("Your account has been suspended. Please contact support.");
+    }
+
+    const isAdminLogin = credentials.isAdminPortal === "true";
+
+    // 4. Organization Suspension Check (For Customer Logins when status column exists in DB)
+    if (
+      !isAdminLogin &&
+      user.organization?.status &&
+      user.organization.status !== "active"
+    ) {
+      throw new Error("Your organization workspace has been suspended. Please contact support.");
+    }
+
+    // 5. Organization Membership Check (For Customer Logins)
+    if (!isAdminLogin && user.role !== "super_admin" && (!user.organizationId || !user.organization)) {
+      throw new Error("Your account is not associated with an active organization.");
+    }
+
+    // 6. Portal Privilege Assertion (Anti-enumeration)
+    if (isAdminLogin) {
+      if (user.role !== "super_admin") {
+        return null;
+      }
+    }
+
+    return {
+      id: user.id,
+      name: user.name || normalizedEmail.split("@")[0],
+      email: user.email,
+      image: user.image,
+      role: user.role,
+      organizationId: user.organizationId,
+      sessionVersion: user.sessionVersion ?? 1,
+    };
+  };
+}
+
+export const defaultAuthorize = createAuthorize(prisma);
+
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as Adapter,
   providers: [
@@ -223,114 +314,7 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
         isAdminPortal: { label: "isAdminPortal", type: "text" },
       },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
-          return null;
-        }
-
-        const normalizedEmail = credentials.email.toLowerCase().trim();
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let user: any;
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          user = await (prisma.user as any).findUnique({
-            where: { email: normalizedEmail },
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              image: true,
-              password: true,
-              role: true,
-              status: true,
-              sessionVersion: true,
-              organizationId: true,
-              organization: {
-                select: { id: true, status: true },
-              },
-            },
-          });
-        } catch (error: unknown) {
-          // Precise fallback: only trigger if column is missing (P2022 / 42703).
-          // P2021 (missing table) or other database errors will fail closed.
-          if (isMissingColumnError(error)) {
-            try {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              user = await (prisma.user as any).findUnique({
-                where: { email: normalizedEmail },
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                  image: true,
-                  password: true,
-                  role: true,
-                  organizationId: true,
-                  organization: {
-                    select: { id: true },
-                  },
-                },
-              });
-              if (user) {
-                user.status = user.status ?? "active";
-                user.sessionVersion = user.sessionVersion ?? 1;
-                if (user.organization) {
-                  user.organization.status = user.organization.status ?? "active";
-                }
-              }
-            } catch (fallbackErr) {
-              console.error("[NextAuth authorize] Fallback database lookup failed:", fallbackErr);
-              throw new Error("Authentication service is temporarily unavailable. Please try again later.");
-            }
-          } else {
-            console.error("[NextAuth authorize] Database lookup failed:", error);
-            throw new Error("Authentication service is temporarily unavailable. Please try again later.");
-          }
-        }
-
-        if (!user || !user.password) {
-          return null;
-        }
-
-        const isValid = await bcrypt.compare(credentials.password, user.password);
-        if (!isValid) {
-          return null;
-        }
-
-        // Enforce User Suspension
-        if (user.status && user.status !== "active") {
-          throw new Error("Your account has been suspended. Please contact support.");
-        }
-
-        // Enforce Organization Suspension (For Customer Logins)
-        const isAdminLogin = credentials.isAdminPortal === "true";
-        if (
-          !isAdminLogin &&
-          user.organization &&
-          user.organization.status &&
-          user.organization.status !== "active"
-        ) {
-          throw new Error("Your organization workspace has been suspended. Please contact support.");
-        }
-
-        // Portal-specific Privilege Assertion
-        if (isAdminLogin) {
-          if (user.role !== "super_admin") {
-            return null; // Anti-enumeration
-          }
-        }
-
-        return {
-          id: user.id,
-          name: user.name || normalizedEmail.split("@")[0],
-          email: user.email,
-          image: user.image,
-          role: user.role,
-          organizationId: user.organizationId,
-          sessionVersion: user.sessionVersion ?? 1,
-        };
-      },
+      authorize: defaultAuthorize,
     }),
   ],
   session: {
@@ -343,3 +327,4 @@ export const authOptions: NextAuthOptions = {
   },
   callbacks: defaultCallbacks as unknown as NextAuthOptions["callbacks"],
 };
+

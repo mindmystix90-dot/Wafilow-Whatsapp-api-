@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
 
     const targetOrg = await prisma.organization.findUnique({
       where: { id: userOrgId },
+      select: { id: true, name: true },
     });
 
     if (!targetOrg) {
@@ -274,6 +275,7 @@ export async function POST(req: NextRequest) {
       });
       const existingOrgWithWaba = await tx.organization.findUnique({
         where: { wabaId: resolvedWabaId! },
+        select: { id: true },
       });
 
       if (
@@ -292,6 +294,7 @@ export async function POST(req: NextRequest) {
       });
       const existingOrgWithPhone = await tx.organization.findUnique({
         where: { phoneNumberId: resolvedPhoneId! },
+        select: { id: true },
       });
 
       if (
