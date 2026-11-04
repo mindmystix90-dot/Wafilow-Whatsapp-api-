@@ -5,6 +5,7 @@ import {
   getWhatsAppConnection,
   validateEnvironment,
   WhatsAppEnvironment,
+  calculateCustomerWindow,
 } from "@/lib/whatsapp";
 import { prisma } from "@/lib/prisma";
 import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
@@ -13,13 +14,13 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/whatsapp/messages
- * Retrieves real messages from the database for a specific contact and environment.
+ * Retrieves real messages from the database for a specific contact and environment,
+ * along with the 24-hour customer service window status strictly derived from the latest inbound message.
  */
 export async function GET(req: NextRequest) {
   try {
     const sessionUser = await requireActiveUserSession();
     const orgId = sessionUser.organizationId;
-
 
     const { searchParams } = new URL(req.url);
     const contactId = searchParams.get("contactId");
@@ -63,8 +64,38 @@ export async function GET(req: NextRequest) {
       orderBy: { timestamp: "asc" },
     });
 
+    // Find the latest INBOUND customer message to strictly compute the 24h service window
+    const lastInbound = await prisma.message.findFirst({
+      where: {
+        contactId,
+        direction: "inbound",
+        environment,
+      },
+      orderBy: { timestamp: "desc" },
+      select: { timestamp: true },
+    });
+
+    const customerWindow = calculateCustomerWindow(lastInbound?.timestamp);
+
     const formattedMessages = messages.map((m) => {
       const d = new Date(m.timestamp);
+
+      // Extract error code and type if message failed
+      let errorCode: number | undefined;
+      let errorType: string | undefined;
+      if (m.status === "failed" && m.errorMessage) {
+        if (m.errorMessage.includes("131047") || m.errorMessage.includes("131030")) {
+          errorCode = m.errorMessage.includes("131047") ? 131047 : 131030;
+          errorType = "window_closed";
+        } else if (m.errorMessage.includes("133010")) {
+          errorCode = 133010;
+          errorType = "phone_registration_required";
+        } else if (m.errorMessage.includes("190")) {
+          errorCode = 190;
+          errorType = "token_expired";
+        }
+      }
+
       return {
         id: m.id,
         wamId: m.wamId,
@@ -75,6 +106,8 @@ export async function GET(req: NextRequest) {
         timestamp: m.timestamp,
         status: m.status,
         errorMessage: m.errorMessage,
+        errorCode,
+        errorType,
         environment: m.environment,
       };
     });
@@ -82,6 +115,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       environment,
+      customerWindow,
       messages: formattedMessages,
     });
   } catch (error: unknown) {
@@ -91,17 +125,24 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/whatsapp/messages
- * Sends a real text message through Meta Cloud API for the specified environment
- * and persists to DB with strict environment isolation.
+ * Sends a real message (text or approved template) through Meta Cloud API v24.0.
+ * Strictly calculates 24-hour customer window using latest INBOUND message.
+ * Blocks free-form text when window is closed, requiring approved templates.
  */
 export async function POST(req: NextRequest) {
   try {
     const sessionUser = await requireActiveUserSession();
     const sessionOrgId = sessionUser.organizationId;
 
-
     const body = await req.json().catch(() => ({}));
-    const { contactId, text, to, environment: rawEnv = "production" } = body;
+    const {
+      contactId,
+      text,
+      to,
+      type = "text",
+      template,
+      environment: rawEnv = "production",
+    } = body;
 
     let environment: WhatsAppEnvironment;
     try {
@@ -113,7 +154,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!text || !text.trim()) {
+    if (type === "text" && (!text || !text.trim())) {
       return NextResponse.json(
         { success: false, error: "Message text cannot be empty." },
         { status: 400 }
@@ -176,11 +217,50 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Call Meta Cloud API v24.0 strictly with requested environment
+    // Strictly calculate the 24-hour customer window using the latest INBOUND customer message
+    const lastInbound = await prisma.message.findFirst({
+      where: {
+        contactId: contact.id,
+        direction: "inbound",
+        environment,
+      },
+      orderBy: { timestamp: "desc" },
+      select: { timestamp: true },
+    });
+
+    const windowStatus = calculateCustomerWindow(lastInbound?.timestamp);
+
+    // BLOCK free-form text messages when the 24-hour window is closed!
+    if (type === "text" && !windowStatus.isOpen) {
+      return NextResponse.json(
+        {
+          success: false,
+          environment,
+          error: "Meta Error (Code 131047): The 24-hour customer service window has expired (more than 24 hours have passed since customer last replied). Outside this window, Meta requires sending an approved Template message (e.g. hello_world) to re-engage with this customer.",
+          errorCode: 131047,
+          errorType: "window_closed",
+          isWindowOpen: false,
+          windowExpiresAt: windowStatus.expiresAt,
+          canSendTemplate: true,
+        },
+        { status: 400 }
+      );
+    }
+
+    const contentToPersist =
+      type === "template"
+        ? (text && text.trim()) || `Template: ${template?.name || "hello_world"}`
+        : text.trim();
+
+    // Call Meta Cloud API v24.0 strictly with requested environment & type
     const sendResult = await sendWhatsAppMessage({
       to: contact.phoneNumber,
-      type: "text",
-      text: text.trim(),
+      type: type === "template" ? "template" : "text",
+      text: type === "text" ? text.trim() : undefined,
+      template:
+        type === "template"
+          ? template || { name: "hello_world", language: { code: "en_US" } }
+          : undefined,
       organizationId: sessionOrgId,
       environment,
     });
@@ -193,8 +273,8 @@ export async function POST(req: NextRequest) {
           organizationId: sessionOrgId,
           environment,
           direction: "outbound",
-          content: text.trim(),
-          type: "text",
+          content: contentToPersist,
+          type: type === "template" ? "template" : "text",
           status: "failed",
           errorMessage: sendResult.error,
         },
@@ -214,13 +294,17 @@ export async function POST(req: NextRequest) {
           error: sendResult.error,
           errorCode: sendResult.errorCode,
           errorType: sendResult.errorType,
+          fbtraceId: sendResult.fbtraceId,
           metaError: sendResult.rawMetaError,
           failedMessage: {
             id: failedMsg.id,
             sender: "agent",
-            text: text.trim(),
+            text: contentToPersist,
+            type: failedMsg.type,
             status: "failed",
             errorMessage: sendResult.error,
+            errorCode: sendResult.errorCode,
+            errorType: sendResult.errorType,
             time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
             environment,
           },
@@ -237,8 +321,8 @@ export async function POST(req: NextRequest) {
         environment,
         wamId: sendResult.messageId,
         direction: "outbound",
-        content: text.trim(),
-        type: "text",
+        content: contentToPersist,
+        type: type === "template" ? "template" : "text",
         status: "sent",
       },
     });
@@ -280,6 +364,7 @@ export async function POST(req: NextRequest) {
         wamId: savedMsg.wamId,
         sender: "agent",
         text: savedMsg.content,
+        type: savedMsg.type,
         status: "sent",
         time: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         timestamp: savedMsg.timestamp,

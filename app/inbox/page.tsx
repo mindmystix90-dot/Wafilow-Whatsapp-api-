@@ -20,6 +20,7 @@ import {
   ExternalLink,
   RotateCcw,
   Beaker,
+  ShieldCheck,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 
@@ -34,6 +35,11 @@ interface Conversation {
   time: string;
   unread: number;
   tags: string[];
+  lastInboundAt?: string | null;
+  isWindowOpen?: boolean;
+  windowExpiresAt?: string | null;
+  remainingHours?: number;
+  remainingMinutes?: number;
 }
 
 interface ChatMessage {
@@ -47,7 +53,14 @@ interface ChatMessage {
   status?: "sent" | "delivered" | "read" | "failed";
   errorMessage?: string;
   errorCode?: number;
-  errorType?: "registration" | "window_closed" | "token_expired" | "undeliverable" | "permission" | "general";
+  errorType?: "phone_registration_required" | "registration" | "window_closed" | "token_expired" | "undeliverable" | "permission" | "general";
+}
+
+interface CustomerWindowInfo {
+  isOpen: boolean;
+  remainingHours: number;
+  remainingMinutes: number;
+  expiresAt?: string | null;
 }
 
 interface ErrorDetailsModalState {
@@ -87,6 +100,7 @@ function InboxContent() {
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [customerWindow, setCustomerWindow] = useState<CustomerWindowInfo | null>(null);
 
   // Connection notice banner state
   const [connectionNotice, setConnectionNotice] = useState<{
@@ -95,6 +109,7 @@ function InboxContent() {
     description: string;
     actionLink?: string;
     actionLabel?: string;
+    actionType?: "register" | "send_template";
   } | null>(null);
 
   // Detailed error modal for administrators
@@ -180,6 +195,9 @@ function InboxContent() {
         const data = await res.json();
         if (data.success) {
           setMessages(data.messages || []);
+          if (data.customerWindow) {
+            setCustomerWindow(data.customerWindow);
+          }
           if (isInitial) {
             // Force scroll to bottom on initial load
             setTimeout(() => scrollToBottom(true), 50);
@@ -208,11 +226,25 @@ function InboxContent() {
     if (!selectedId) return;
     const timer = setTimeout(() => {
       setConnectionNotice(null);
+      setCustomerWindow(null);
       setIsLoadingMessages(true);
       fetchMessages(selectedId, true);
     }, 0);
     return () => clearTimeout(timer);
   }, [selectedId, fetchMessages]);
+
+  // Derive authoritative active window: uses detailed messages window, or falls back to conversation summary
+  const activeConv = conversations.find((c) => c.id === selectedId);
+  const activeWindow: CustomerWindowInfo | null =
+    customerWindow ||
+    (activeConv && activeConv.isWindowOpen !== undefined
+      ? {
+          isOpen: Boolean(activeConv.isWindowOpen),
+          remainingHours: activeConv.remainingHours || 0,
+          remainingMinutes: activeConv.remainingMinutes || 0,
+          expiresAt: activeConv.windowExpiresAt,
+        }
+      : null);
 
   // Poll for live messages every 4 seconds
   useEffect(() => {
@@ -225,27 +257,34 @@ function InboxContent() {
     return () => clearInterval(interval);
   }, [selectedId, fetchConversations, fetchMessages]);
 
-  const activeConv = conversations.find((c) => c.id === selectedId);
-
   // Helper to diagnose and surface connection-level errors cleanly
   const processErrorNotice = (errorCode?: number, errorType?: string) => {
-    if (errorCode === 133010 || errorType === "registration") {
+    if (
+      errorCode === 133010 ||
+      errorType === "phone_registration_required" ||
+      errorType === "registration"
+    ) {
       setConnectionNotice({
         type: "registration",
         title: "Phone Number Registration Required",
         description:
-          "Meta reports that this WhatsApp phone number has not completed Cloud API registration. Complete your 6-digit two-step verification PIN registration in Settings to enable messaging.",
+          "Meta reports that this WhatsApp phone number is not registered on WhatsApp Business Platform. Complete your 6-digit two-step verification PIN registration in Settings to enable messaging.",
         actionLink: "/settings?tab=production&action=register",
-        actionLabel: "Register Phone in Settings",
+        actionLabel: "Register PIN in Settings",
+        actionType: "register",
       });
-    } else if (errorCode === 131030 || errorType === "window_closed") {
+    } else if (
+      errorCode === 131047 ||
+      errorCode === 131030 ||
+      errorType === "window_closed"
+    ) {
       setConnectionNotice({
         type: "window_closed",
-        title: "24-Hour Customer Window Closed",
+        title: "24-Hour Customer Window Expired",
         description:
-          "More than 24 hours have passed since the customer's last reply. Outside this window, Meta allows sending pre-approved WhatsApp Templates only.",
-        actionLink: "/templates",
-        actionLabel: "View Approved Templates",
+          "More than 24 hours have passed since the customer's last reply. Outside this window, Meta policy requires sending an approved Template (e.g. 'hello_world') to re-open the conversation.",
+        actionType: "send_template",
+        actionLabel: "Send 'hello_world' Template",
       });
     } else if (errorCode === 190 || errorType === "token_expired") {
       setConnectionNotice({
@@ -268,11 +307,84 @@ function InboxContent() {
     }
   };
 
+  // Dispatch approved Template message (re-opens customer service window)
+  const handleSendTemplate = async (templateName = "hello_world") => {
+    if (!selectedId || isSending) return;
+
+    setIsSending(true);
+
+    const optimisticMsg = createOptimisticMessage(`Template: ${templateName}`);
+    optimisticMsg.type = "template";
+    const tempId = optimisticMsg.id;
+
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setTimeout(() => scrollToBottom(true), 30);
+
+    try {
+      const res = await fetch("/api/whatsapp/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId: selectedId,
+          type: "template",
+          template: {
+            name: templateName,
+            language: { code: "en_US" },
+          },
+          environment,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        processErrorNotice(data.errorCode, data.errorType);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId
+              ? {
+                  ...m,
+                  status: "failed",
+                  errorMessage: data.error || "Delivery failed",
+                  errorCode: data.errorCode,
+                  errorType: data.errorType,
+                }
+              : m
+          )
+        );
+      } else {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...data.message } : m))
+        );
+        setConnectionNotice(null);
+        fetchConversations(false);
+        if (selectedId) fetchMessages(selectedId, false);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Network error";
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempId
+            ? { ...m, status: "failed", errorMessage: `Network error: ${msg}` }
+            : m
+        )
+      );
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   // 3. Send Message via Real Meta Cloud API
   const handleSendMessage = async (e?: React.FormEvent, overrideText?: string) => {
     if (e) e.preventDefault();
     const textToSend = (overrideText ?? inputText).trim();
     if (!textToSend || !selectedId || isSending) return;
+
+    // Block free-form text if 24-hour window has expired
+    if (activeWindow && !activeWindow.isOpen) {
+      processErrorNotice(131047, "window_closed");
+      return;
+    }
 
     setIsSending(true);
 
@@ -296,6 +408,7 @@ function InboxContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contactId: selectedId,
+          type: "text",
           text: textToSend,
           environment,
         }),
@@ -338,9 +451,26 @@ function InboxContent() {
     }
   };
 
-  // Safe manual retry for failed messages
-  const handleRetry = (msgText: string, failedMsgId: string) => {
-    // Remove the failed placeholder and retry cleanly
+  // Safe intelligent retry for failed messages - NEVER blindly retries permanent failures
+  const handleRetry = (msgText: string, failedMsgId: string, errorCode?: number, errorType?: string) => {
+    if (errorCode === 131047 || errorCode === 131030 || errorType === "window_closed") {
+      // The 24h window is closed - sending text will fail again; send an approved template instead!
+      setMessages((prev) => prev.filter((m) => m.id !== failedMsgId));
+      handleSendTemplate("hello_world");
+      return;
+    }
+
+    if (
+      errorCode === 133010 ||
+      errorType === "phone_registration_required" ||
+      errorType === "registration"
+    ) {
+      // Phone is unregistered - retrying text will fail; route to PIN registration
+      processErrorNotice(133010, "phone_registration_required");
+      return;
+    }
+
+    // Remove the failed placeholder and retry cleanly for transient network errors
     setMessages((prev) => prev.filter((m) => m.id !== failedMsgId));
     handleSendMessage(undefined, msgText);
   };
@@ -661,11 +791,30 @@ function InboxContent() {
                     <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate max-w-[170px] sm:max-w-xs">
                       {activeConv.name}
                     </h3>
-                    <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono leading-none mt-0.5">
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono leading-none mt-0.5 flex-wrap">
                       <span className="truncate">{activeConv.phone}</span>
                       <span className="text-emerald-600 dark:text-emerald-400 text-[10px] font-sans font-semibold">
                         • WhatsApp
                       </span>
+                      {activeWindow ? (
+                        activeWindow.isOpen ? (
+                          <span
+                            title={`Customer Care Window open. Free-form text allowed for ${activeWindow.remainingHours}h ${activeWindow.remainingMinutes}m.`}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-sans font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            <span>24h Window: Open ({activeWindow.remainingHours}h {activeWindow.remainingMinutes}m left)</span>
+                          </span>
+                        ) : (
+                          <span
+                            title="More than 24h have passed since customer's last reply. Meta policy requires approved Templates only."
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-sans font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                            <span>24h Window: Closed (Template Required)</span>
+                          </span>
+                        )
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -721,7 +870,7 @@ function InboxContent() {
                 </div>
               )}
 
-              {/* Dismissible Connection Notice Banner (For 133010, 131030, etc.) */}
+              {/* Dismissible Connection Notice Banner (For 133010, 131047, 131030, etc.) */}
               {connectionNotice && (
                 <div className="px-4 py-2.5 bg-amber-50 dark:bg-amber-950/50 border-b border-amber-200 dark:border-amber-900/60 text-amber-900 dark:text-amber-200 text-xs flex items-center justify-between gap-3 animate-in fade-in duration-150">
                   <div className="flex items-center gap-2 min-w-0">
@@ -732,14 +881,23 @@ function InboxContent() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {connectionNotice.actionLink && (
+                    {connectionNotice.actionType === "send_template" ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSendTemplate("hello_world")}
+                        disabled={isSending}
+                        className="px-2.5 py-1 rounded-lg bg-[#5938F5] hover:bg-[#4d2ee0] text-white font-semibold text-[10px] whitespace-nowrap transition-colors cursor-pointer shadow-xs"
+                      >
+                        {isSending ? "Sending..." : connectionNotice.actionLabel || "Send Template"}
+                      </button>
+                    ) : connectionNotice.actionLink ? (
                       <Link
                         href={connectionNotice.actionLink}
                         className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold text-[10px] whitespace-nowrap transition-colors"
                       >
                         {connectionNotice.actionLabel || "Resolve"}
                       </Link>
-                    )}
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => setConnectionNotice(null)}
@@ -824,21 +982,40 @@ function InboxContent() {
                           </div>
                         </div>
 
-                        {/* Subtle Failed Message State & Retry Action (Zero giant red paragraphs) */}
+                        {/* Subtle Failed Message State & Intelligent Action */}
                         {isFailed && (
-                          <div className="flex items-center gap-2 mt-1 text-[11px] text-rose-600 dark:text-rose-400 font-medium">
+                          <div className="flex items-center gap-2 mt-1 text-[11px] text-rose-600 dark:text-rose-400 font-medium flex-wrap">
                             <span className="flex items-center gap-1">
                               <AlertCircle className="w-3 h-3" />
                               Not delivered
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => handleRetry(m.text, m.id)}
-                              className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 hover:bg-rose-100 text-rose-700 dark:text-rose-300 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-                            >
-                              <RotateCcw className="w-3 h-3" />
-                              Retry
-                            </button>
+                            {m.errorCode === 131047 || m.errorCode === 131030 || m.errorType === "window_closed" ? (
+                              <button
+                                type="button"
+                                onClick={() => handleRetry(m.text, m.id, m.errorCode, m.errorType)}
+                                className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900 hover:bg-amber-100 text-amber-800 dark:text-amber-300 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <Send className="w-3 h-3" />
+                                Send Template
+                              </button>
+                            ) : m.errorCode === 133010 || m.errorType === "phone_registration_required" || m.errorType === "registration" ? (
+                              <Link
+                                href="/settings?tab=production&action=register"
+                                className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 hover:bg-rose-100 text-rose-800 dark:text-rose-300 text-[10px] font-semibold flex items-center gap-1 transition-colors"
+                              >
+                                <ShieldCheck className="w-3 h-3" />
+                                Register PIN
+                              </Link>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleRetry(m.text, m.id, m.errorCode, m.errorType)}
+                                className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 hover:bg-rose-100 text-rose-700 dark:text-rose-300 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                Retry
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() =>
@@ -865,6 +1042,26 @@ function InboxContent() {
 
               {/* 3. FIXED MESSAGE COMPOSER */}
               <div className="p-2.5 sm:p-3.5 border-t border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#111827] shrink-0 sticky bottom-0 z-20 pb-safe">
+                {/* 24-Hour Window Expired Notice with Template Quick Action */}
+                {activeWindow && !activeWindow.isOpen && (
+                  <div className="mb-2.5 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 flex items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-200 max-w-4xl mx-auto flex-wrap">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span className="text-[11px] leading-relaxed">
+                        <strong>24h Window Expired:</strong> Free-form text is blocked by Meta. Send an approved template message to re-open the conversation.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSendTemplate("hello_world")}
+                      disabled={isSending}
+                      className="px-3 py-1.5 rounded-xl bg-[#5938F5] hover:bg-[#4d2ee0] text-white font-semibold text-xs shrink-0 shadow-xs cursor-pointer transition-colors"
+                    >
+                      {isSending ? "Sending..." : "Send 'hello_world' Template"}
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between text-[11px] px-1 pb-2 max-w-4xl mx-auto">
                   <div className="flex items-center gap-2">
                     <span className="text-slate-500 dark:text-slate-400 font-medium">Environment:</span>
@@ -908,15 +1105,19 @@ function InboxContent() {
                           handleSendMessage();
                         }
                       }}
-                      placeholder="Type a message..."
-                      disabled={isSending}
-                      className="w-full text-xs sm:text-sm bg-transparent text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed"
+                      placeholder={
+                        activeWindow && !activeWindow.isOpen
+                          ? "Customer window expired. Use 'Send Template' button above to re-open..."
+                          : "Type a message..."
+                      }
+                      disabled={isSending || (activeWindow !== null && !activeWindow.isOpen)}
+                      className="w-full text-xs sm:text-sm bg-transparent text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed disabled:opacity-50"
                     />
                   </div>
 
                   <button
                     type="submit"
-                    disabled={!inputText.trim() || isSending}
+                    disabled={!inputText.trim() || isSending || (activeWindow !== null && !activeWindow.isOpen)}
                     aria-label="Send WhatsApp message"
                     className="w-11 h-11 rounded-full bg-[#5938F5] hover:bg-[#4d2ee0] disabled:opacity-40 text-white font-semibold shadow-sm transition-all flex items-center justify-center shrink-0 cursor-pointer"
                   >
@@ -1133,10 +1334,10 @@ function InboxContent() {
                   Recommended Action
                 </span>
                 <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                  {errorModal.errorCode === 133010 || errorModal.errorType === "registration"
-                    ? "The phone number has not completed Cloud API registration. Complete the two-step verification PIN in Meta WhatsApp Manager, or check your Phone Number ID in Settings."
-                    : errorModal.errorCode === 131030 || errorModal.errorType === "window_closed"
-                    ? "Customer 24h window closed. Send an approved template message to re-engage the customer."
+                  {errorModal.errorCode === 133010 || errorModal.errorType === "phone_registration_required" || errorModal.errorType === "registration"
+                    ? "The phone number is not registered on WhatsApp Business Platform. Complete the 6-digit two-step verification PIN registration in Settings to enable messaging."
+                    : errorModal.errorCode === 131047 || errorModal.errorCode === 131030 || errorModal.errorType === "window_closed"
+                    ? "Customer 24h service window has expired. Outside this window, Meta policy requires sending an approved Template message (e.g. 'hello_world') to re-engage with the customer."
                     : errorModal.errorCode === 190
                     ? "Meta Access Token has expired. Regenerate your token in Meta Business Manager and update Settings."
                     : "Check your WhatsApp API connection in Settings and verify your Meta Business Portfolio status."}

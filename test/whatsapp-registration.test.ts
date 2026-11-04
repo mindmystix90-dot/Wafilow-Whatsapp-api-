@@ -119,21 +119,29 @@ test("3. Meta API Dispatch & Error Handling (Mocked)", async (t) => {
 
   try {
     await t.test("dispatches request with correct v24.0 endpoint, headers, and body", async () => {
-      let capturedUrl = "";
-      let capturedMethod = "";
-      let capturedHeaders: Record<string, string> = {};
-      let capturedBody: Record<string, unknown> = {};
+      const capturedRequests: Array<{ url: string; method: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
 
       global.fetch = async (url: string | URL | Request, init?: RequestInit) => {
-        capturedUrl = url.toString();
-        capturedMethod = init?.method || "";
-        capturedHeaders = (init?.headers as Record<string, string>) || {};
-        capturedBody = JSON.parse((init?.body as string) || "{}");
+        const u = url.toString();
+        const m = init?.method || "GET";
+        const h = (init?.headers as Record<string, string>) || {};
+        const b = init?.body ? JSON.parse(init.body as string) : {};
+        capturedRequests.push({ url: u, method: m, headers: h, body: b });
 
-        return new Response(JSON.stringify({ success: true }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+        if (u.includes("/register")) {
+          return new Response(JSON.stringify({ success: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            id: mockPhoneId,
+            display_phone_number: "+1 555-0199",
+            verified_name: "Test Verified Business",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
       };
 
       const result = await registerWhatsAppPhoneNumber({
@@ -142,15 +150,23 @@ test("3. Meta API Dispatch & Error Handling (Mocked)", async (t) => {
       });
 
       assert.equal(result.success, true);
-      assert.equal(capturedMethod, "POST");
+      assert.ok(capturedRequests.length >= 2, "Expected at least 2 requests (register POST + verify GET)");
+
+      const registerReq = capturedRequests.find((r) => r.url.includes("/register"));
+      assert.ok(registerReq, "Must have dispatched POST to register endpoint");
+      assert.equal(registerReq.method, "POST");
       assert.equal(
-        capturedUrl,
+        registerReq.url,
         `https://graph.facebook.com/v24.0/${mockPhoneId}/register`
       );
-      assert.equal(capturedHeaders["Authorization"], `Bearer ${mockRawToken}`);
-      assert.equal(capturedHeaders["Content-Type"], "application/json");
-      assert.equal(capturedBody["messaging_product"], "whatsapp");
-      assert.equal(capturedBody["pin"], "654321");
+      assert.equal(registerReq.headers["Authorization"], `Bearer ${mockRawToken}`);
+      assert.equal(registerReq.headers["Content-Type"], "application/json");
+      assert.equal(registerReq.body["messaging_product"], "whatsapp");
+      assert.equal(registerReq.body["pin"], "654321");
+
+      const verifyReq = capturedRequests.find((r) => r.url.includes("fields="));
+      assert.ok(verifyReq, "Must have dispatched GET to verify registration status");
+      assert.equal(verifyReq.method, "GET");
     });
 
     await t.test("handles Meta Error 133005 (PIN mismatch) safely without leaking secrets", async () => {
@@ -343,6 +359,7 @@ test("5. WhatsApp Connection & Embedded Signup Baseline Schema Resilience", asyn
 
   await t.test("getWhatsAppConnection falls back to Organization when WhatsAppConnection table is absent", async () => {
     const origConnFindUnique = prisma.whatsAppConnection.findUnique;
+    const origConnUpsert = prisma.whatsAppConnection.upsert;
     const origOrgFindUnique = prisma.organization.findUnique;
 
     // Simulate P2021 table missing error on whatsAppConnection
@@ -352,6 +369,9 @@ test("5. WhatsApp Connection & Embedded Signup Baseline Schema Resilience", asyn
       (err as any).code = "P2021";
       throw err;
     };
+
+    // @ts-expect-error mock assignment
+    prisma.whatsAppConnection.upsert = async () => ({ id: "mock-conn" });
 
     // @ts-expect-error mock assignment
     prisma.organization.findUnique = async (args: any) => {
@@ -375,6 +395,7 @@ test("5. WhatsApp Connection & Embedded Signup Baseline Schema Resilience", asyn
       assert.equal(conn.accessToken, "fallback-token-secret");
     } finally {
       prisma.whatsAppConnection.findUnique = origConnFindUnique;
+      prisma.whatsAppConnection.upsert = origConnUpsert;
       prisma.organization.findUnique = origOrgFindUnique;
     }
   });

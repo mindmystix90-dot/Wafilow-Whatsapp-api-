@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { validateEnvironment, WhatsAppEnvironment } from "@/lib/whatsapp";
+import { validateEnvironment, WhatsAppEnvironment, calculateCustomerWindow } from "@/lib/whatsapp";
 import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +46,30 @@ export async function GET(req: NextRequest) {
       orderBy: { updatedAt: "desc" },
     });
 
+    // Compute 24-hour customer service window strictly from latest INBOUND messages
+    const contactIds = contacts.map((c) => c.id);
+    let inboundMap = new Map<string, Date>();
+    if (contactIds.length > 0) {
+      try {
+        const latestInbounds = await prisma.message.findMany({
+          where: {
+            contactId: { in: contactIds },
+            direction: "inbound",
+            environment,
+          },
+          orderBy: { timestamp: "desc" },
+          distinct: ["contactId"],
+          select: {
+            contactId: true,
+            timestamp: true,
+          },
+        });
+        inboundMap = new Map(latestInbounds.map((m) => [m.contactId, m.timestamp]));
+      } catch (inboundErr) {
+        console.warn("[Conversations] Notice querying latest inbounds (falling back):", inboundErr);
+      }
+    }
+
     const conversations = contacts.map((c) => {
       const latestMsg = c.messages[0];
       const tagsArray = c.tags
@@ -63,6 +87,9 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      const lastInboundTimestamp = inboundMap.get(c.id) || null;
+      const windowStatus = calculateCustomerWindow(lastInboundTimestamp);
+
       return {
         id: c.id,
         name: c.name || `+${c.phoneNumber}`,
@@ -76,6 +103,11 @@ export async function GET(req: NextRequest) {
         tags: tagsArray,
         environment: c.environment,
         updatedAt: c.updatedAt,
+        lastInboundAt: lastInboundTimestamp ? lastInboundTimestamp.toISOString() : null,
+        isWindowOpen: windowStatus.isOpen,
+        windowExpiresAt: windowStatus.expiresAt ? windowStatus.expiresAt.toISOString() : null,
+        remainingHours: windowStatus.remainingHours,
+        remainingMinutes: windowStatus.remainingMinutes,
       };
     });
 

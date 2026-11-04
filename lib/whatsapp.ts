@@ -429,12 +429,68 @@ export async function resolveOrganizationForWebhook(
   return result ? { id: result.id, name: result.name } : null;
 }
 
+export interface CustomerWindowStatus {
+  isOpen: boolean;
+  expiresAt: Date | null;
+  remainingMs: number;
+  remainingHours: number;
+  remainingMinutes: number;
+}
+
+/**
+ * Calculates the 24-hour customer service window status strictly using
+ * the customer's latest INBOUND message timestamp.
+ * Outbound agent messages NEVER extend or reopen this window.
+ */
+export function calculateCustomerWindow(lastInboundTimestamp?: Date | string | null): CustomerWindowStatus {
+  if (!lastInboundTimestamp) {
+    return {
+      isOpen: false,
+      expiresAt: null,
+      remainingMs: 0,
+      remainingHours: 0,
+      remainingMinutes: 0,
+    };
+  }
+
+  const inboundTime = new Date(lastInboundTimestamp).getTime();
+  if (isNaN(inboundTime)) {
+    return {
+      isOpen: false,
+      expiresAt: null,
+      remainingMs: 0,
+      remainingHours: 0,
+      remainingMinutes: 0,
+    };
+  }
+
+  const WINDOW_DURATION_MS = 24 * 60 * 60 * 1000;
+  const expiresAtMs = inboundTime + WINDOW_DURATION_MS;
+  const now = Date.now();
+  const remainingMs = expiresAtMs - now;
+  const isOpen = remainingMs > 0;
+
+  const validRemainingMs = Math.max(0, remainingMs);
+  const remainingHours = Math.floor(validRemainingMs / (1000 * 60 * 60));
+  const remainingMinutes = Math.floor((validRemainingMs % (1000 * 60 * 60)) / (1000 * 60));
+
+  return {
+    isOpen,
+    expiresAt: new Date(expiresAtMs),
+    remainingMs: validRemainingMs,
+    remainingHours,
+    remainingMinutes,
+  };
+}
+
 export interface SendWhatsAppResult {
   success: boolean;
   messageId?: string;
   error?: string;
   errorCode?: number;
-  errorType?: "registration" | "window_closed" | "token_expired" | "undeliverable" | "permission" | "general" | "sandbox_recipient" | "quota_exceeded" | "suspended";
+  errorType?: "phone_registration_required" | "registration" | "window_closed" | "token_expired" | "undeliverable" | "permission" | "general" | "sandbox_recipient" | "quota_exceeded" | "suspended";
+  fbtraceId?: string;
+  errorDetails?: string;
   rawMetaError?: unknown;
   status?: number;
   environment?: WhatsAppEnvironment;
@@ -735,16 +791,23 @@ export async function sendWhatsAppMessage({
       let userFriendlyMessage = metaErr.message || "Failed to send message via Meta Cloud API";
       let errorType: SendWhatsAppResult["errorType"] = "general";
 
+      const fbtraceId = typeof metaErr.fbtrace_id === "string" ? metaErr.fbtrace_id : undefined;
+      const errorDetails = metaErr.error_data?.details || metaErr.error_user_msg || metaErr.message;
+
       if (code === 133010) {
-        errorType = "registration";
+        errorType = "phone_registration_required";
         userFriendlyMessage =
           environment === "sandbox"
-            ? "Meta Error (Code 133010): Test Account not registered. For Sandbox, ensure your Meta Test Phone Number ID is copied from App -> WhatsApp -> API Setup."
-            : "Meta Error (Code 133010): Account not registered. This WhatsApp phone number has not completed Cloud API registration. Complete two-step verification PIN registration in Settings.";
+            ? "Meta Error (Code 133010): Test Account not registered on WhatsApp Business Platform. Ensure your Test Phone Number ID is copied from Meta App -> WhatsApp -> API Setup."
+            : "Meta Error (Code 133010): Phone number is not registered on WhatsApp Business Platform. Complete two-step verification PIN registration in Settings.";
+      } else if (code === 131047) {
+        errorType = "window_closed";
+        userFriendlyMessage =
+          "Meta Error (Code 131047): The 24-hour customer service window has expired (more than 24 hours have passed since the customer last replied). Outside this window, Meta requires sending an approved Template message (e.g. hello_world) to re-engage.";
       } else if (code === 131030) {
         errorType = "window_closed";
         userFriendlyMessage =
-          "Meta Error (Code 131030): Customer service window is closed (more than 24 hours have passed since customer last replied). Outside this 24-hour window, you must send an approved Meta WhatsApp Template (e.g. hello_world).";
+          "Meta Error (Code 131030): Message failed because more than 24 hours have passed or messaging window is restricted. Outside this window, send an approved Meta Template (e.g. hello_world).";
       } else if (code === 190) {
         errorType = "token_expired";
         userFriendlyMessage =
@@ -777,7 +840,8 @@ export async function sendWhatsAppMessage({
         subcode,
         errorType,
         message: metaErr.message,
-        details: metaErr.error_data?.details,
+        details: errorDetails,
+        fbtrace_id: fbtraceId,
       });
 
       // If registration is required, persist error status in DB so UI immediately highlights registration
@@ -804,6 +868,8 @@ export async function sendWhatsAppMessage({
         error: userFriendlyMessage,
         errorCode: code,
         errorType,
+        fbtraceId,
+        errorDetails: typeof errorDetails === "string" ? errorDetails : undefined,
         rawMetaError: metaErr,
         status: response.status,
         environment,
@@ -930,6 +996,27 @@ export async function registerWhatsAppPhoneNumber({
     }
 
     if (data.success === true) {
+      // Confirm registration status after the operation with Meta Graph API
+      let displayPhone = conn.displayPhoneNumber;
+      let verifiedName = conn.verifiedName;
+      try {
+        const verifyRes = await fetch(
+          `https://graph.facebook.com/${apiVersion}/${conn.phoneNumberId}?fields=id,status,code_verification_status,display_phone_number,verified_name`,
+          {
+            headers: {
+              Authorization: `Bearer ${conn.accessToken}`,
+            },
+          }
+        );
+        if (verifyRes.ok) {
+          const verifyData = await verifyRes.json();
+          if (verifyData.display_phone_number) displayPhone = verifyData.display_phone_number;
+          if (verifyData.verified_name) verifiedName = verifyData.verified_name;
+        }
+      } catch (verifyErr) {
+        console.warn("[WhatsApp Register] Non-critical post-registration status check warning:", verifyErr);
+      }
+
       try {
         await prisma.whatsAppConnection.update({
           where: {
@@ -940,6 +1027,8 @@ export async function registerWhatsAppPhoneNumber({
           },
           data: {
             status: "connected",
+            displayPhoneNumber: displayPhone,
+            verifiedName,
             lastError: null,
             lastCheckedAt: new Date(),
           },
