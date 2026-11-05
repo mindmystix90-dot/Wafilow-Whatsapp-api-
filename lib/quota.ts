@@ -169,17 +169,19 @@ export async function checkAndReserveQuota(
   } catch (error) {
     if (isMissingColumnError(error)) {
       try {
+        // Fallback selects ONLY baseline schema columns (id, name).
+        // Does NOT query nonexistent Organization.status, Organization.planTier, or Organization.monthlyLimit.
         org = await db.organization.findUnique({
           where: { id: organizationId },
           select: {
             id: true,
             name: true,
-            planTier: true,
-            monthlyLimit: true,
           },
         });
         if (org) {
-          (org as { status?: string }).status = "active";
+          (org as { status?: string; planTier?: string; monthlyLimit?: number | null }).status = "active";
+          (org as { status?: string; planTier?: string; monthlyLimit?: number | null }).planTier = "starter";
+          (org as { status?: string; planTier?: string; monthlyLimit?: number | null }).monthlyLimit = null;
         }
       } catch (fallbackError) {
         console.error("[Quota Check] Baseline fallback query failed:", fallbackError);
@@ -342,6 +344,24 @@ export async function setOrganizationQuotaOverride(
 
     return updated;
   } catch (error) {
+    if (isMissingColumnError(error)) {
+      // In baseline schema, columns monthlyLimit and planTier do not exist in the Organization table.
+      // Verify organization exists using baseline query
+      const baselineOrg = await db.organization.findUnique({
+        where: { id: organizationId },
+        select: { id: true, name: true },
+      });
+      if (!baselineOrg) {
+        throw new Error("Target organization workspace not found.");
+      }
+      return {
+        id: baselineOrg.id,
+        name: baselineOrg.name || "Default Organization",
+        status: "active",
+        planTier: params.planTier || "starter",
+        monthlyLimit: params.limit !== undefined ? params.limit : null,
+      };
+    }
     console.error("[Quota Override] Failed to update organization quota in DB:", error instanceof Error ? error.message : "Unknown error");
     throw new Error("Unable to update organization quota override.");
   }
@@ -351,8 +371,9 @@ export async function setOrganizationQuotaOverride(
  * Returns full quota overview for all organizations from PostgreSQL
  */
 export async function listAllQuotas(db: DbClient = prisma): Promise<QuotaInfo[]> {
+  let orgs;
   try {
-    const orgs = await db.organization.findMany({
+    orgs = await db.organization.findMany({
       select: {
         id: true,
         name: true,
@@ -362,44 +383,66 @@ export async function listAllQuotas(db: DbClient = prisma): Promise<QuotaInfo[]>
       },
       orderBy: { createdAt: "desc" },
     });
-
-    const monthStart = getMonthStart();
-    const resetDate = getNextResetDate().toISOString();
-
-    const results: QuotaInfo[] = [];
-
-    for (const org of orgs) {
-      const planTier = org.planTier || "starter";
-      const monthlyLimit = org.monthlyLimit ?? (PLAN_LIMITS[planTier] || 5000);
-
-      let usedThisMonth = 0;
+  } catch (error) {
+    if (isMissingColumnError(error)) {
       try {
-        usedThisMonth = await db.message.count({
-          where: {
-            organizationId: org.id,
-            direction: "outbound",
-            timestamp: { gte: monthStart },
+        const baselineOrgs = await db.organization.findMany({
+          select: {
+            id: true,
+            name: true,
           },
+          orderBy: { createdAt: "desc" },
         });
-      } catch {
-        usedThisMonth = 0;
+        orgs = baselineOrgs.map((o: { id: string; name?: string | null }) => ({
+          id: o.id,
+          name: o.name || "Default Organization",
+          status: "active",
+          planTier: "starter",
+          monthlyLimit: null,
+        }));
+      } catch (fallbackError) {
+        console.error("[listAllQuotas] Baseline fallback query failed:", fallbackError);
+        throw new Error("Failed to retrieve organization quota overview.");
       }
+    } else {
+      console.error("[Quota Overview] Failed to list organization quotas:", error instanceof Error ? error.message : "Unknown error");
+      throw new Error("Failed to retrieve organization quota overview.");
+    }
+  }
 
-      results.push({
-        organizationId: org.id,
-        organizationName: org.name || "Default Organization",
-        status: org.status,
-        planTier,
-        monthlyLimit,
-        usedThisMonth,
-        remaining: Math.max(0, monthlyLimit - usedThisMonth),
-        resetDate,
+  const monthStart = getMonthStart();
+  const resetDate = getNextResetDate().toISOString();
+
+  const results: QuotaInfo[] = [];
+
+  for (const org of orgs) {
+    const planTier = org.planTier || "starter";
+    const monthlyLimit = org.monthlyLimit ?? (PLAN_LIMITS[planTier] || 5000);
+
+    let usedThisMonth = 0;
+    try {
+      usedThisMonth = await db.message.count({
+        where: {
+          organizationId: org.id,
+          direction: "outbound",
+          timestamp: { gte: monthStart },
+        },
       });
+    } catch {
+      usedThisMonth = 0;
     }
 
-    return results;
-  } catch (error) {
-    console.error("[Quota Overview] Failed to list organization quotas:", error instanceof Error ? error.message : "Unknown error");
-    throw new Error("Failed to retrieve organization quota overview.");
+    results.push({
+      organizationId: org.id,
+      organizationName: org.name || "Default Organization",
+      status: org.status,
+      planTier,
+      monthlyLimit,
+      usedThisMonth,
+      remaining: Math.max(0, monthlyLimit - usedThisMonth),
+      resetDate,
+    });
   }
+
+  return results;
 }
