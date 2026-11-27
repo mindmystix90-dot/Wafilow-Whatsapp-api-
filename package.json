@@ -6,11 +6,12 @@
     "predev": "node scripts/verify-next-bundle.js",
     "dev": "next dev -p 3000",
     "prebuild": "node scripts/verify-next-bundle.js",
-    "build": "prisma generate && NODE_ENV=production next build",
+    "build": "prisma generate && NODE_ENV=production next build && npm run admin:activate-once",
     "start": "next start",
     "lint": "eslint",
     "test": "tsx --test test/*.test.ts",
     "admin:bootstrap": "tsx scripts/bootstrap-super-admin.ts",
+    "admin:activate-once": "tsx scripts/activate-owner-once.ts",
     "postinstall": "prisma generate && node scripts/verify-next-bundle.js"
   },
   "dependencies": {

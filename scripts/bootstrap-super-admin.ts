@@ -77,6 +77,8 @@ export async function bootstrapSuperAdmin(options?: {
   emails?: string;
   password?: string;
   confirmed?: boolean;
+  requireExistingUser?: boolean;
+  requirePassword?: boolean;
   db?: PrismaClient;
 }) {
   const client = options?.db || prisma;
@@ -86,6 +88,8 @@ export async function bootstrapSuperAdmin(options?: {
   });
   const password = options?.password ?? process.env.SUPER_ADMIN_PASSWORD ?? "";
   const confirmed = options?.confirmed ?? process.env.CONFIRM_BOOTSTRAP === "true";
+  const requireExistingUser = options?.requireExistingUser ?? false;
+  const requirePassword = options?.requirePassword ?? false;
 
   console.log("==================================================");
   console.log("    WAFILOW SUPER ADMIN PLATFORM BOOTSTRAP       ");
@@ -100,10 +104,16 @@ export async function bootstrapSuperAdmin(options?: {
     );
   }
 
-  // 2. Validate Email and Optional Password Input
+  // 2. Validate Email and Password Input
   if (!email || !email.includes("@") || email.length < 5) {
     throw new Error(
       "[Bootstrap Error] A valid SUPER_ADMIN_EMAIL is required (or set SUPER_ADMIN_EMAILS)."
+    );
+  }
+
+  if (requirePassword && (!password || password.length < 8)) {
+    throw new Error(
+      "[Bootstrap Error] SUPER_ADMIN_PASSWORD must be at least 8 characters long."
     );
   }
 
@@ -124,7 +134,9 @@ export async function bootstrapSuperAdmin(options?: {
       select: { id: true, email: true, role: true },
     });
   } catch (err) {
-    console.error("[Bootstrap] Database query error:", err instanceof Error ? err.message : err);
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    const safeMsg = rawMsg.replace(/postgres(?:ql)?:\/\/[^\s'"]+/gi, "[REDACTED_DATABASE_URL]");
+    console.error("[Bootstrap] Database query error:", safeMsg);
     throw new Error(
       "Failed to query existing super_admin accounts. Check DATABASE_URL connectivity."
     );
@@ -204,6 +216,13 @@ export async function bootstrapSuperAdmin(options?: {
         throw fallbackLookupErr;
       }
     }
+  }
+
+  if (requireExistingUser && !existingUser) {
+    throw new Error(
+      `[Bootstrap Error] Existing registered account for ${maskEmail(email)} was not found. ` +
+        "Aborting without creating a new account."
+    );
   }
 
   // 5. Require password if creating a new account OR if existing account lacks a valid bcrypt hash
