@@ -93,7 +93,7 @@ export default function HeroProductScene3D() {
               <span className="ml-3 text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
                 <span className="font-extrabold text-slate-900 dark:text-white">Wafilow CRM</span>
                 <span className="text-slate-400">·</span>
-                <span className="text-slate-500 font-mono text-[11px]">Meta Graph API v24.0</span>
+                <span className="text-slate-500 font-mono text-[11px]">Meta Cloud API</span>
               </span>
             </div>
 
@@ -233,7 +233,7 @@ export default function HeroProductScene3D() {
                   {/* System Context Note */}
                   <div className="flex justify-center my-1">
                     <span className="text-[10px] text-slate-400 font-mono bg-slate-50 dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/60 px-2 py-0.5 rounded-full">
-                      Inbound via Meta Cloud API v24.0 Webhook
+                      Inbound via Meta Cloud API Webhook
                     </span>
                   </div>
 
@@ -332,7 +332,7 @@ export default function HeroProductScene3D() {
                 <input
                   type="text"
                   readOnly
-                  value="Reply using Cloud API v24.0 or send pre-approved HSM template..."
+                  value="Reply using WhatsApp Cloud API or send pre-approved HSM template..."
                   className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-[11px] text-slate-400 focus:outline-hidden"
                 />
                 <button
@@ -368,7 +368,7 @@ export default function HeroProductScene3D() {
           </div>
         </div>
 
-        {/* FLOATING CARD 2: Meta Cloud API v24.0 Verified Pill (Z: 85px) */}
+        {/* FLOATING CARD 2: Meta Cloud API Verified Pill (Z: 85px) */}
         <div
           className="absolute -bottom-6 -right-4 sm:-bottom-8 sm:-right-6 p-4 rounded-2xl bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-md border border-indigo-500/30 shadow-xl shadow-indigo-950/25 flex items-center gap-3.5 transition-transform duration-300"
           style={{
@@ -380,13 +380,13 @@ export default function HeroProductScene3D() {
           </div>
           <div className="text-left">
             <div className="flex items-center gap-2">
-              <span className="font-extrabold text-xs text-slate-900 dark:text-white">Graph API v24.0</span>
+              <span className="font-extrabold text-xs text-slate-900 dark:text-white">Meta Cloud API</span>
               <span className="text-[9px] font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded">
-                Config 2934849833375100
+                Direct Integration
               </span>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Embedded Signup v4 · Session Info Version 3
+              Embedded Signup · Business App Coexistence
             </p>
           </div>
         </div>

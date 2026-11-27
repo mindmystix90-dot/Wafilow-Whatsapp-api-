@@ -2,9 +2,15 @@
 
 import AppLayout from "@/components/AppLayout";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { UserCheck, Clock, MessageSquare } from "lucide-react";
 
 export default function TeamPage() {
+  const { data: session } = useSession();
+  const displayName = session?.user?.name || "Workspace Administrator";
+  const displayEmail = session?.user?.email || "Authenticated Account";
+  const initial = (displayName || displayEmail || "W").charAt(0).toUpperCase();
+
   return (
     <AppLayout
       title="Team & Agent Management"
@@ -20,19 +26,19 @@ export default function TeamPage() {
             </span>
           </div>
 
-          <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#5938F5] text-white font-bold flex items-center justify-center text-sm shadow-sm">
-                W
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-full bg-[#5938F5] text-white font-bold flex items-center justify-center text-sm shadow-sm shrink-0">
+                {initial}
               </div>
-              <div>
-                <div className="font-semibold text-sm text-slate-900 dark:text-white">Workspace Administrator</div>
-                <div className="text-xs text-slate-500 font-mono">admin@wafilow.com</div>
+              <div className="min-w-0">
+                <div className="font-semibold text-sm text-slate-900 dark:text-white truncate">{displayName}</div>
+                <div className="text-xs text-slate-500 font-mono truncate">{displayEmail}</div>
               </div>
             </div>
-            <div className="text-right">
+            <div className="sm:text-right shrink-0">
               <span className="inline-block px-2.5 py-0.5 rounded text-xs font-semibold bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
-                Super Admin
+                Workspace Admin
               </span>
               <div className="text-[11px] text-slate-400 mt-1">Full Meta API Credentials Access</div>
             </div>

@@ -84,6 +84,7 @@ model Organization {
   messages            Message[]
   wabaAccounts        WhatsAppBusinessAccount[]
   whatsappConnections WhatsAppConnection[]
+  tenantBilling       TenantBilling?
 
   @@index([status])
   @@index([planTier])
@@ -232,4 +233,52 @@ model PasswordResetToken {
   @@index([userId])
   @@index([expiresAt])
 }
+
+model TenantBilling {
+  id                 String       @id @default(cuid())
+  organizationId     String       @unique
+  planTier           String       @default("starter")
+  billingCycle       String       @default("monthly") // "monthly" | "quarterly" | "annual" | "custom"
+  amountCents        Int          @default(0)
+  currency           String       @default("USD")
+  paymentStatus      String       @default("paid") // "paid" | "pending" | "overdue" | "trial" | "waived"
+  paymentMethod      String?      @default("manual") // "manual" | "bank_transfer" | "invoice" | "cash" | "complimentary"
+  invoiceRef         String?
+  notes              String?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  lastPaidAt         DateTime?
+  updatedBy          String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([paymentStatus])
+  @@index([planTier])
+}
+
+model PlatformSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FeatureGate {
+  id            String   @id @default(cuid())
+  key           String   @unique
+  enabled       Boolean  @default(true)
+  description   String?
+  allowedRoles  String? // Comma-separated roles or JSON array
+  allowedOrgIds String? // Comma-separated organization IDs
+  updatedBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([enabled])
+}
+
 

@@ -1,16 +1,19 @@
 "use client";
 
+import { parseEmbeddedSignupSession } from "@/lib/embedded-signup";
+
 /**
  * Facebook JavaScript SDK Loader and Meta Embedded Signup Handler
  * Strictly adheres to client-side security: NEVER exposes tokens, secrets, or codes.
  *
- * Meta App ID: 3356483501181888
- * Embedded Signup Configuration ID: 2934849833375100
- * Facebook JS SDK version: v24.0
+ * Uses Meta Embedded Signup v5 (`extras: { version: "v5", setup: {} }`) with Business App
+ * Coexistence enabled by default while preserving v4 payload fallback.
  */
 
 let sdkPromise: Promise<void> | null = null;
 let fbInitCompleted = false;
+
+export { parseEmbeddedSignupSession };
 
 /**
  * Loads and initializes the Facebook JavaScript SDK in Next.js/browser environment.
@@ -23,7 +26,6 @@ export function loadFacebookSdk(
     return Promise.resolve();
   }
 
-  // If already loaded and initialized, ensure FB.init is run with target version
   if (window.FB) {
     try {
       window.FB.init({
@@ -44,7 +46,6 @@ export function loadFacebookSdk(
   }
 
   sdkPromise = new Promise<void>((resolve, reject) => {
-    // Configure initialization callback
     window.fbAsyncInit = function () {
       try {
         window.FB?.init({
@@ -60,7 +61,6 @@ export function loadFacebookSdk(
       }
     };
 
-    // If script is already inserted, wait for FB to be available
     const existingScript = document.getElementById("facebook-jssdk");
     if (existingScript) {
       if (window.FB) {
@@ -122,16 +122,41 @@ export interface EmbeddedSignupResult {
   code: string;
   wabaId?: string;
   phoneNumberId?: string;
+  primaryWaacId?: string;
+  messagingAccountIds?: string[];
+  primaryWaacIds?: string[];
+  isOnBizApp?: boolean;
   sessionInfo?: Record<string, unknown>;
   event?: string;
   isCoexistence?: boolean;
 }
 
 /**
- * Launches Meta WhatsApp Embedded Signup flow.
- * - Adds window "message" listener to capture WA_EMBEDDED_SIGNUP session details.
- * - Calls FB.login with config_id, response_type: 'code', and version: 'v4'.
- * - Returns code, wabaId, phoneNumberId, and sessionInfo to be passed to server.
+ * Builds Meta WhatsApp Embedded Signup v5 FB.login options.
+ * - Uses extras.version = "v5" with empty setup object per Meta v5 docs.
+ * - Omits legacy sessionInfoVersion ("3") and featureType ("whatsapp_business_app_onboarding"),
+ *   which are ignored/superseded in v5 (Business App onboarding is enabled by default in v5).
+ */
+export function buildEmbeddedSignupLoginOptions(
+  configId: string = "2934849833375100"
+): FbLoginOptions {
+  const effectiveConfigId = (configId || "2934849833375100").trim();
+  return {
+    config_id: effectiveConfigId,
+    response_type: "code",
+    override_default_response_type: true,
+    extras: {
+      version: "v5",
+      setup: {},
+    },
+  };
+}
+
+/**
+ * Launches Meta WhatsApp Embedded Signup flow with Business App Coexistence support.
+ * - Captures WA_EMBEDDED_SIGNUP postMessage events from verified Meta origins.
+ * - Parses v5 fields (messaging_account_ids, primary_waac_ids, is_on_biz_app) + v4 fallback.
+ * - Sends raw sessionInfo alongside code to the server for strict server-side verification.
  */
 export async function launchEmbeddedSignup({
   appId = "3356483501181888",
@@ -146,7 +171,6 @@ export async function launchEmbeddedSignup({
     throw new Error("Embedded Signup can only be launched in a browser environment.");
   }
 
-  // Verify domain configuration for Meta Embedded Signup
   const ALLOWED_HOSTS = new Set([
     "wafilow-whatsapp-api.vercel.app",
     "wjr-orion-edmunds-projects.vercel.app",
@@ -165,7 +189,6 @@ export async function launchEmbeddedSignup({
     );
   }
 
-  // Ensure Facebook SDK is initialized
   await loadFacebookSdk(appId, version);
 
   if (!window.FB) {
@@ -173,16 +196,12 @@ export async function launchEmbeddedSignup({
   }
 
   return new Promise<EmbeddedSignupResult>((resolve, reject) => {
-    let capturedWabaId: string | undefined;
-    let capturedPhoneId: string | undefined;
     let capturedSessionInfo: Record<string, unknown> = {};
     let capturedEvent: string | undefined;
     let isCancelled = false;
     let metaErrorMessage: string | null = null;
 
-    // Window message listener for Embedded Signup session info
     const sessionMessageListener = (event: MessageEvent) => {
-      // Validate origin is from Facebook
       if (
         event.origin !== "https://www.facebook.com" &&
         event.origin !== "https://web.facebook.com"
@@ -193,30 +212,32 @@ export async function launchEmbeddedSignup({
       try {
         const payload = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
         if (payload && payload.type === "WA_EMBEDDED_SIGNUP") {
-          capturedSessionInfo = { ...capturedSessionInfo, ...payload };
+          const prevData =
+            capturedSessionInfo.data && typeof capturedSessionInfo.data === "object"
+              ? (capturedSessionInfo.data as Record<string, unknown>)
+              : {};
+          const nextData =
+            payload.data && typeof payload.data === "object"
+              ? (payload.data as Record<string, unknown>)
+              : {};
+
+          capturedSessionInfo = {
+            ...capturedSessionInfo,
+            ...payload,
+            data: { ...prevData, ...nextData },
+          };
+
           if (typeof payload.event === "string") {
             capturedEvent = payload.event;
           }
 
-          console.log("[Embedded Signup postMessage Event]:", payload.event, payload);
-
-          if (
-            payload.event === "FINISH" ||
-            payload.event === "FINISH_ONLY_WABA" ||
-            payload.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"
-          ) {
-            const data = payload.data || {};
-            const waba = data.waba_id || data.wabaId;
-            const phone = data.phone_number_id || data.phoneNumberId;
-            if (waba) capturedWabaId = String(waba).trim();
-            if (phone) capturedPhoneId = String(phone).trim();
-          } else if (payload.event === "CANCEL") {
+          if (payload.event === "CANCEL") {
             isCancelled = true;
           } else if (payload.event === "ERROR") {
             metaErrorMessage =
               payload.data?.error_message ||
               payload.data?.message ||
-              "Meta returned an error during the Embedded Signup onboarding.";
+              "Meta returned an error during WhatsApp onboarding.";
           }
         }
       } catch {
@@ -226,7 +247,6 @@ export async function launchEmbeddedSignup({
 
     window.addEventListener("message", sessionMessageListener);
 
-    // Launch Facebook Login for Business
     const FB = window.FB;
     if (!FB) {
       window.removeEventListener("message", sessionMessageListener);
@@ -238,7 +258,7 @@ export async function launchEmbeddedSignup({
       window.removeEventListener("message", sessionMessageListener);
 
       if (isCancelled) {
-        reject(new Error("Embedded Signup was cancelled by the user."));
+        reject(new Error("WhatsApp onboarding was cancelled by the user."));
         return;
       }
 
@@ -251,67 +271,48 @@ export async function launchEmbeddedSignup({
       if (!code) {
         reject(
           new Error(
-            "Meta Embedded Signup was closed or authorization was cancelled. No temporary authorization code was returned."
+            "Meta authorization was closed or cancelled. No temporary authorization code was returned."
           )
         );
         return;
       }
 
-      const isCoexistence =
-        capturedEvent === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" ||
-        capturedSessionInfo.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" ||
-        capturedSessionInfo.current_step === "finish_whatsapp_business_app_onboarding";
+      const parsed = parseEmbeddedSignupSession(capturedSessionInfo, capturedEvent);
 
       resolve({
         code,
-        wabaId: capturedWabaId,
-        phoneNumberId: capturedPhoneId,
+        wabaId: parsed.wabaId,
+        phoneNumberId: parsed.phoneNumberId,
+        primaryWaacId: parsed.primaryWaacId,
+        messagingAccountIds: parsed.messagingAccountIds,
+        primaryWaacIds: parsed.primaryWaacIds,
+        isOnBizApp: parsed.isOnBizApp,
         sessionInfo: capturedSessionInfo,
-        event: capturedEvent,
-        isCoexistence: Boolean(isCoexistence),
+        event: parsed.event,
+        isCoexistence: parsed.isCoexistenceSession,
       });
     };
 
-    const effectiveConfigId = (configId || "2934849833375100").trim();
-    const effectiveAppId = (appId || "3356483501181888").trim();
+    const loginOptions = buildEmbeddedSignupLoginOptions(configId);
 
-    const loginOptions: FbLoginOptions = {
-      config_id: effectiveConfigId,
-      response_type: "code",
-      override_default_response_type: true,
-      extras: {
-        setup: {},
-        featureType: "whatsapp_business_app_onboarding",
-        sessionInfoVersion: "3",
-      },
-    };
-
-    console.log("=== FACEBOOK SDK DIAGNOSTIC ===");
-    console.log("window.location.href:", window.location.href);
-    console.log("window.location.origin:", window.location.origin);
-    console.log("document.location.href:", document.location.href);
-    console.log("document.location.origin:", document.location.origin);
-    console.log("window.self === window.top:", window.self === window.top);
-    console.log("hostname:", window.location.hostname);
-    console.log("protocol:", window.location.protocol);
-    console.log("FB exists:", !!window.FB);
-    console.log("FB.init completed:", fbInitCompleted);
-    console.log("FB App ID/config:", {
-      appId: effectiveAppId,
-      configId: effectiveConfigId,
-    });
-    console.log("FB.login arguments:", loginOptions);
+    if (process.env.NODE_ENV !== "production") {
+      console.debug("[Embedded Signup] Launching Meta login flow", {
+        fbInitCompleted,
+        configId: loginOptions.config_id,
+        sdkVersion: version,
+      });
+    }
 
     FB.login(fbLoginCallback, loginOptions);
   });
 }
 
 /**
- * Direct alias for launchEmbeddedSignup to trace the exact runtime flow:
- * Connect WhatsApp button -> launchWhatsAppSignup() -> FB.login()
+ * Direct alias for launchEmbeddedSignup
  */
 export const launchWhatsAppSignup = launchEmbeddedSignup;
 
 if (typeof window !== "undefined") {
-  (window as unknown as { launchWhatsAppSignup?: typeof launchEmbeddedSignup }).launchWhatsAppSignup = launchEmbeddedSignup;
+  (window as unknown as { launchWhatsAppSignup?: typeof launchEmbeddedSignup }).launchWhatsAppSignup =
+    launchEmbeddedSignup;
 }

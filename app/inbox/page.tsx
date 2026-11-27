@@ -1205,7 +1205,7 @@ function InboxContent() {
                   Active WhatsApp
                 </span>
                 <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20">
-                  Cloud API v24.0
+                  WhatsApp Cloud API
                 </span>
               </div>
             </div>
@@ -1285,7 +1285,7 @@ function InboxContent() {
                 WhatsApp Channel
               </span>
               <p className="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
-                Connected via Meta WhatsApp Cloud API v24.0. Supports text messages, templates, and webhook delivery status.
+                Connected via Meta WhatsApp Cloud API. Supports text messages, templates, and webhook delivery status.
               </p>
             </div>
           </div>

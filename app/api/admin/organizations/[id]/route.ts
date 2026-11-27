@@ -32,15 +32,35 @@ export async function PUT(
     const { id } = await params;
 
     const body = await req.json().catch(() => ({}));
-    const { name, status, planTier, monthlyLimit } = body;
+    const {
+      name,
+      status,
+      planTier,
+      monthlyLimit,
+      displayPhoneNumber,
+      phoneNumberId,
+      wabaId,
+    } = body;
 
     const updated = await updateOrganization(
       id,
       {
-        name,
-        status,
-        planTier,
-        monthlyLimit: typeof monthlyLimit === "number" ? monthlyLimit : undefined,
+        name: typeof name === "string" ? name : undefined,
+        status:
+          status === "active" || status === "suspended" ? status : undefined,
+        planTier: typeof planTier === "string" ? planTier : undefined,
+        monthlyLimit:
+          typeof monthlyLimit === "number" ? monthlyLimit : undefined,
+        displayPhoneNumber:
+          displayPhoneNumber === null || typeof displayPhoneNumber === "string"
+            ? displayPhoneNumber
+            : undefined,
+        phoneNumberId:
+          phoneNumberId === null || typeof phoneNumberId === "string"
+            ? phoneNumberId
+            : undefined,
+        wabaId:
+          wabaId === null || typeof wabaId === "string" ? wabaId : undefined,
       },
       admin
     );

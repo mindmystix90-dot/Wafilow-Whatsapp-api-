@@ -2,16 +2,6 @@ import { withAuth, NextRequestWithAuth } from "next-auth/middleware";
 import { NextRequest, NextResponse } from "next/server";
 import type { NextFetchEvent } from "next/server";
 
-const authMiddleware = withAuth({
-  callbacks: {
-    authorized: ({ token }) => !!token,
-  },
-  pages: {
-    signIn: "/login",
-  },
-  secret: process.env.NEXTAUTH_SECRET || "wafilow-saas-production-session-secret-key",
-});
-
 const DEFAULT_ALLOWED_HOSTS = new Set([
   "wafilow-whatsapp-api.vercel.app",
   "wjr-orion-edmunds-projects.vercel.app",
@@ -35,6 +25,27 @@ export default async function middleware(req: NextRequest, event: NextFetchEvent
     url.port = "";
     return NextResponse.redirect(url, { status: 308 });
   }
+
+  const nextAuthSecret = process.env.NEXTAUTH_SECRET;
+  if (!nextAuthSecret || nextAuthSecret.trim() === "") {
+    console.error(
+      "[Auth Middleware] FATAL: NEXTAUTH_SECRET environment variable is missing or empty. Refusing access to protected route."
+    );
+    return NextResponse.json(
+      { error: "Authentication service is misconfigured." },
+      { status: 500 }
+    );
+  }
+
+  const authMiddleware = withAuth({
+    callbacks: {
+      authorized: ({ token }) => !!token,
+    },
+    pages: {
+      signIn: "/login",
+    },
+    secret: nextAuthSecret,
+  });
 
   return (authMiddleware as unknown as (r: NextRequestWithAuth, e: NextFetchEvent) => Promise<NextResponse>)(
     req as NextRequestWithAuth,

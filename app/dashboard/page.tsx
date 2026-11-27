@@ -193,7 +193,7 @@ export default function DashboardPage() {
                   {environment === "sandbox"
                     ? "Meta Developer Sandbox Environment Active"
                     : metaConfig?.isConfigured
-                    ? "Meta WhatsApp Cloud API v24.0 Connected (Live)"
+                    ? "Meta WhatsApp Cloud API Connected (Live)"
                     : "Production WhatsApp Not Connected"}
                 </span>
                 <span

@@ -58,9 +58,18 @@ CREATE INDEX IF NOT EXISTS "PasswordResetToken_expiresAt_idx" ON "PasswordResetT
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'PasswordResetToken_userId_fkey'
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE n.nspname = 'public'
+          AND t.relname = 'PasswordResetToken'
+          AND c.conname = 'PasswordResetToken_userId_fkey'
+          AND c.contype = 'f'
     ) THEN
-        ALTER TABLE "PasswordResetToken" ADD CONSTRAINT "PasswordResetToken_userId_fkey" 
-        FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        ALTER TABLE "public"."PasswordResetToken"
+            ADD CONSTRAINT "PasswordResetToken_userId_fkey"
+            FOREIGN KEY ("userId") REFERENCES "public"."User"("id")
+            ON DELETE CASCADE ON UPDATE CASCADE;
     END IF;
 END $$;

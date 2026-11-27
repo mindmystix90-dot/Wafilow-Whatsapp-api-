@@ -49,17 +49,19 @@ export default function AdminLoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#070b12] text-slate-100 flex flex-col justify-center items-center p-4">
-      <div className="w-full max-w-md bg-slate-900/90 border border-amber-900/40 rounded-3xl p-8 space-y-6 shadow-2xl backdrop-blur-xl relative overflow-hidden">
+    <div className="min-h-screen w-full overflow-x-hidden bg-[#070b12] text-slate-100 flex flex-col justify-center items-center p-4">
+      <div className="w-full max-w-md bg-slate-900/90 border border-amber-900/40 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl backdrop-blur-xl relative overflow-hidden">
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-500" />
 
         <div className="text-center space-y-2">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-600 to-rose-600 text-white flex items-center justify-center mx-auto shadow-lg shadow-amber-900/30">
             <ShieldAlert className="w-6 h-6" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-white">Super Admin Console</h1>
+          <h1 className="text-xl font-bold tracking-tight text-white">
+            Platform Owner Console
+          </h1>
           <p className="text-xs text-slate-400">
-            Platform root operations, tenant administration, and security controls
+            Restricted operations, tenant administration, manual billing, and release controls
           </p>
         </div>
 
@@ -72,24 +74,25 @@ export default function AdminLoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="text-xs font-semibold text-slate-300 block mb-1">
-              Administrator Email
+            <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+              Owner Email
             </label>
             <div className="relative">
               <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
                 type="email"
                 required
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@wafilow.com"
-                className="w-full pl-9 pr-3 py-2.5 rounded-xl text-xs bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                placeholder="owner@domain.com"
+                className="w-full pl-9 pr-3 py-3 rounded-xl text-sm sm:text-xs bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
               />
             </div>
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-300 block mb-1">
+            <label className="text-xs font-semibold text-slate-300 block mb-1.5">
               Password
             </label>
             <div className="relative">
@@ -97,10 +100,11 @@ export default function AdminLoginPage() {
               <input
                 type="password"
                 required
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
-                className="w-full pl-9 pr-3 py-2.5 rounded-xl text-xs bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                className="w-full pl-9 pr-3 py-3 rounded-xl text-sm sm:text-xs bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
               />
             </div>
           </div>
@@ -108,7 +112,7 @@ export default function AdminLoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition-colors shadow-lg shadow-amber-500/10 disabled:opacity-50"
+            className="w-full py-3 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition-colors shadow-lg shadow-amber-500/10 disabled:opacity-50"
           >
             {loading ? "Verifying Authorization..." : "Access Control Console"}
           </button>
@@ -117,10 +121,10 @@ export default function AdminLoginPage() {
         <div className="pt-2 text-center border-t border-slate-800/60">
           <Link
             href="/dashboard"
-            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors py-1"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Return to Customer Application</span>
+            <span>Return to Application</span>
           </Link>
         </div>
       </div>

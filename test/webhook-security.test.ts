@@ -47,14 +47,55 @@ test("Meta WhatsApp Webhook Security Suite", async (t) => {
 
   await t.test("5. Pass-through when META_APP_SECRET is not configured (dev mode)", async () => {
     assert.equal(
-      verifyMetaSignature(payload, null, undefined),
+      verifyMetaSignature(payload, null, undefined, "development"),
       true,
-      "Should pass through when no secret is configured in environment"
+      "Should pass through when no secret is configured in development"
     );
     assert.equal(
-      verifyMetaSignature(payload, null, ""),
+      verifyMetaSignature(payload, null, "", "test"),
       true,
-      "Should pass through when secret is empty string"
+      "Should pass through when secret is empty string in non-production"
     );
+  });
+
+  await t.test("6. Fails closed in production when META_APP_SECRET is missing or blank", async () => {
+    const validHmac = crypto
+      .createHmac("sha256", secret)
+      .update(payload)
+      .digest("hex");
+
+    assert.equal(
+      verifyMetaSignature(payload, null, undefined, "production"),
+      false,
+      "Production must reject webhook when META_APP_SECRET is undefined"
+    );
+    assert.equal(
+      verifyMetaSignature(payload, `sha256=${validHmac}`, "", "production"),
+      false,
+      "Production must reject webhook when META_APP_SECRET is empty"
+    );
+    assert.equal(
+      verifyMetaSignature(payload, `sha256=${validHmac}`, "   ", "production"),
+      false,
+      "Production must reject webhook when META_APP_SECRET is whitespace"
+    );
+
+    // Also verify default process.env.NODE_ENV lookup
+    const prevNodeEnv = process.env.NODE_ENV;
+    try {
+      (process.env as Record<string, string | undefined>).NODE_ENV = "production";
+      assert.equal(
+        verifyMetaSignature(payload, null, undefined),
+        false,
+        "Default NODE_ENV=production must fail closed without secret"
+      );
+      assert.equal(
+        verifyMetaSignature(payload, `sha256=${validHmac}`, secret),
+        true,
+        "Default NODE_ENV=production must still accept valid HMAC signature when secret is configured"
+      );
+    } finally {
+      (process.env as Record<string, string | undefined>).NODE_ENV = prevNodeEnv;
+    }
   });
 });

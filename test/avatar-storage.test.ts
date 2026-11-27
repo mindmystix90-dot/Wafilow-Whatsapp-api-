@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
 import {
   validateImageMagicBytes,
   MAX_AVATAR_SIZE,
@@ -27,14 +28,23 @@ test("1. Avatar File Validation & Size Enforcement", async (t) => {
 
   await t.test("rejects buffers larger than 3MB", async () => {
     const oversizedBuffer = Buffer.alloc(3 * 1024 * 1024 + 1);
-    await assert.rejects(
-      async () => {
-        await uploadAvatar(oversizedBuffer, "test-user-1", "image/png");
-      },
-      {
-        message: /exceeds the 3MB maximum allowed limit/,
+    const testUserId = "test-user-1";
+    let unexpectedUploadUrl: string | null = null;
+    try {
+      await assert.rejects(
+        async () => {
+          const res = await uploadAvatar(oversizedBuffer, testUserId, "image/png");
+          unexpectedUploadUrl = res.url;
+        },
+        {
+          message: /exceeds the 3MB maximum allowed limit/,
+        }
+      );
+    } finally {
+      if (unexpectedUploadUrl) {
+        await deleteAvatar(unexpectedUploadUrl, testUserId);
       }
-    );
+    }
   });
 });
 
@@ -76,11 +86,66 @@ test("3. User Isolation & Safe Deletion Enforcement", async (t) => {
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
   ]);
+  const createdTestAvatars: Array<{ url: string; userId: string }> = [];
+
+  const cleanupTestAvatar = async (url: string, userId: string): Promise<boolean> => {
+    const deleted = await deleteAvatar(url, userId);
+    const idx = createdTestAvatars.findIndex(
+      (entry) => entry.url === url && entry.userId === userId
+    );
+    if (idx !== -1) {
+      createdTestAvatars.splice(idx, 1);
+    }
+    return deleted;
+  };
+
+  t.after(async () => {
+    while (createdTestAvatars.length > 0) {
+      const entry = createdTestAvatars.pop()!;
+      await deleteAvatar(entry.url, entry.userId);
+    }
+  });
 
   await t.test("upload generates user-isolated storage key", async () => {
-    const res = await uploadAvatar(pngSample, "usr_alice123", "image/png");
-    assert.match(res.url, /^\/api\/user\/avatar\/avatar_usr_alice123_\d+_[a-z0-9]+\.png$/);
-    assert.match(res.storageKey, /avatar_usr_alice123_/);
+    const testUserId = "usr_alice123";
+    let uploadedUrl: string | null = null;
+    try {
+      const res = await uploadAvatar(pngSample, testUserId, "image/png");
+      uploadedUrl = res.url;
+      createdTestAvatars.push({ url: res.url, userId: testUserId });
+      assert.match(res.url, /^\/api\/user\/avatar\/avatar_usr_alice123_\d+_[a-z0-9]+\.png$/);
+      assert.match(res.storageKey, /avatar_usr_alice123_/);
+    } finally {
+      if (uploadedUrl) {
+        await cleanupTestAvatar(uploadedUrl, testUserId);
+      }
+    }
+
+    assert.ok(uploadedUrl);
+    assert.equal(await getAvatarFile(path.basename(uploadedUrl)), null);
+  });
+
+  await t.test("cleans up test-created avatar file even when a test step fails", async () => {
+    const testUserId = "usr_alice123";
+    let uploadedUrl: string | null = null;
+    await assert.rejects(
+      async () => {
+        try {
+          const res = await uploadAvatar(pngSample, testUserId, "image/png");
+          uploadedUrl = res.url;
+          createdTestAvatars.push({ url: res.url, userId: testUserId });
+          throw new Error("Simulated assertion failure");
+        } finally {
+          if (uploadedUrl) {
+            await cleanupTestAvatar(uploadedUrl, testUserId);
+          }
+        }
+      },
+      { message: /Simulated assertion failure/ }
+    );
+
+    assert.ok(uploadedUrl);
+    assert.equal(await getAvatarFile(path.basename(uploadedUrl)), null);
   });
 
   await t.test("prevents User B from deleting User A's avatar", async () => {

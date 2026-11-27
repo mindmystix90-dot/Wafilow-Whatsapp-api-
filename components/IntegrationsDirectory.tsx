@@ -39,33 +39,33 @@ const INTEGRATIONS: IntegrationItem[] = [
     description: "Official direct Meta Graph API integration for enterprise WhatsApp messaging, outbound broadcasts, and template dispatch.",
     status: "configured",
     statusLabel: "Production Active",
-    endpoint: "https://graph.facebook.com/v24.0",
+    endpoint: "https://graph.facebook.com",
     docsUrl: "https://developers.facebook.com/docs/whatsapp/cloud-api",
     actionUrl: "/settings",
     actionLabel: "Configure Credentials",
     technicalDetails: {
       protocol: "REST / HTTPS",
-      version: "Graph API v24.0",
+      version: "Meta Cloud API",
       authMethod: "Bearer Access Token (System User)",
       notes: "Direct server-side API calls with zero third-party broker or per-message markups.",
     },
   },
   {
     id: "meta-embedded-signup",
-    name: "Meta Embedded Signup v4",
+    name: "Meta Embedded Signup",
     category: "meta",
     description: "1-Click Facebook JavaScript SDK onboarding flow with WhatsApp Business App Coexistence bridge and automatic WABA registration.",
     status: "ready",
     statusLabel: "Integrated & Tested",
-    endpoint: "https://www.facebook.com/v24.0/dialog/oauth",
+    endpoint: "https://www.facebook.com/dialog/oauth",
     docsUrl: "https://developers.facebook.com/docs/whatsapp/embedded-signup",
     actionUrl: "/settings",
     actionLabel: "Launch 1-Click Signup",
     technicalDetails: {
       protocol: "OAuth 2.0 Auth Code Exchange",
-      version: "ES v4 / Session Info v3",
-      authMethod: "config_id: 2934849833375100",
-      notes: "featureType: 'whatsapp_business_app_onboarding' enables simultaneous mobile app and web CRM operation.",
+      version: "Embedded Signup & Coexistence",
+      authMethod: "Meta App OAuth Configuration",
+      notes: "Enables simultaneous WhatsApp Business mobile app and Wafilow Cloud API operation.",
     },
   },
   {
@@ -80,9 +80,9 @@ const INTEGRATIONS: IntegrationItem[] = [
     actionLabel: "Verify Webhook Token",
     technicalDetails: {
       protocol: "HTTPS Webhook (GET/POST)",
-      version: "Meta v24.0 Event Format",
+      version: "Meta Webhook Events",
       authMethod: "HMAC SHA-256 (x-hub-signature-256)",
-      notes: "Handles 'messages' and 'smb_message_echoes' with verified SHA-256 payload signatures.",
+      notes: "Handles inbound messages, business app echoes, history sync, and delivery receipts with verified SHA-256 payload signatures.",
     },
   },
   {
@@ -92,12 +92,12 @@ const INTEGRATIONS: IntegrationItem[] = [
     description: "Tenant-isolated relational persistence engine storing contacts, conversation threads, message logs, and Meta tokens.",
     status: "configured",
     statusLabel: "Connected",
-    endpoint: "DATABASE_URL (Prisma Client v5.22)",
+    endpoint: "DATABASE_URL (PostgreSQL)",
     actionUrl: "/dashboard",
     actionLabel: "View Database Metrics",
     technicalDetails: {
-      protocol: "PostgreSQL / SQLite Connection Pool",
-      version: "Prisma ORM 5.22.0",
+      protocol: "PostgreSQL Connection Pool",
+      version: "Managed PostgreSQL",
       authMethod: "Encrypted Database Credentials",
       notes: "Strict multi-tenant isolation keyed by organizationId across all message and contact queries.",
     },
@@ -114,7 +114,7 @@ const INTEGRATIONS: IntegrationItem[] = [
     actionLabel: "Manage Workspace Access",
     technicalDetails: {
       protocol: "JWT (JSON Web Token)",
-      version: "NextAuth v4.24",
+      version: "NextAuth Session Engine",
       authMethod: "Bcrypt (12 Rounds Salted Hash)",
       notes: "Protects all internal CRM routes (/dashboard, /inbox, /contacts, /settings) with strict session validation.",
     },
@@ -131,7 +131,7 @@ const INTEGRATIONS: IntegrationItem[] = [
     actionLabel: "View Templates",
     technicalDetails: {
       protocol: "Meta Cloud API Template Dispatch",
-      version: "Graph API v24.0",
+      version: "Meta Cloud API",
       authMethod: "WABA Pre-Approval",
       notes: "Standard 'hello_world' template verified; custom template submissions managed in Meta Business Manager.",
     },
@@ -165,7 +165,7 @@ const INTEGRATIONS: IntegrationItem[] = [
     actionLabel: "Access Live API",
     technicalDetails: {
       protocol: "JSON over HTTPS",
-      version: "Next.js 15 App Router",
+      version: "Next.js App Router",
       authMethod: "Session Token & Tenant Scoping",
       notes: "Polls every 4 seconds for sub-second synchronization of new webhook events.",
     },
@@ -280,7 +280,7 @@ export default function IntegrationsDirectory() {
                     <span>{item.technicalDetails.protocol}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-slate-400">Spec Version</span>
+                    <span className="text-[10px] text-slate-400">Specification</span>
                     <span className="text-indigo-600 dark:text-indigo-400 font-bold">
                       {item.technicalDetails.version}
                     </span>

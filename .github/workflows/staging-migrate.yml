@@ -222,13 +222,20 @@ jobs:
               console.log(`[Pre-Flight] ✓ All ${expectedBaselineCols.length} baseline columns confirmed present across all 12 tables.`);
 
               // 4. Assert Incremental Tables Do NOT Exist Yet
-              const incrementalTables = ["WhatsAppConnection", "AuditLog", "PasswordResetToken"];
+              const incrementalTables = [
+                "WhatsAppConnection",
+                "AuditLog",
+                "PasswordResetToken",
+                "TenantBilling",
+                "PlatformSetting",
+                "FeatureGate"
+              ];
               const existingIncremental = incrementalTables.filter(t => tables.includes(t));
               if (existingIncremental.length > 0) {
                 console.error(`::error::Incremental tables already exist: ${existingIncremental.join(", ")}. Cannot baseline 0_init.`);
                 process.exit(1);
               }
-              console.log("[Pre-Flight] ✓ Incremental tables (WhatsAppConnection, AuditLog, PasswordResetToken) verified absent.");
+              console.log("[Pre-Flight] ✓ Incremental tables (WhatsAppConnection, AuditLog, PasswordResetToken, TenantBilling, PlatformSetting, FeatureGate) verified absent.");
 
               // 5. Assert Incremental Columns Do NOT Exist on Base Tables
               const incrementalColsRes = await prisma.$queryRaw`
@@ -336,7 +343,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
         run: |
-          echo "Deploying incremental migrations (WhatsAppConnection, Super Admin persistence)..."
+          echo "Deploying incremental migrations (WhatsAppConnection, Super Admin persistence, maintenance & manual billing)..."
           npx prisma migrate deploy
 
       - name: Step 3 - Post-Flight Verification (Audit Incremental Objects & Migrations)
@@ -359,19 +366,21 @@ jobs:
               const tables = tablesRes.map(t => t.table_name);
               console.log(`[Post-Flight] Detected ${tables.length} tables in post-migration schema.`);
 
-              // Assert all 15 models + _prisma_migrations exist
+              // Assert all 18 models + _prisma_migrations exist
               const expectedAllTables = [
                 "Account", "Campaign", "Contact", "Conversation", "Message",
                 "Organization", "Session", "Template", "User", "VerificationToken",
                 "WhatsAppBusinessAccount", "WhatsAppPhoneNumber",
-                "WhatsAppConnection", "AuditLog", "PasswordResetToken", "_prisma_migrations"
+                "WhatsAppConnection", "AuditLog", "PasswordResetToken",
+                "TenantBilling", "PlatformSetting", "FeatureGate",
+                "_prisma_migrations"
               ];
               const missingTables = expectedAllTables.filter(t => !tables.includes(t));
               if (missingTables.length > 0) {
                 console.error(`::error::Post-migration schema is missing tables: ${missingTables.join(", ")}`);
                 process.exit(1);
               }
-              console.log("[Post-Flight] ✓ All 15 Prisma model tables + _prisma_migrations confirmed present.");
+              console.log("[Post-Flight] ✓ All 18 Prisma model tables + _prisma_migrations confirmed present.");
 
               // 2. Audit Incremental Columns
               const incColsRes = await prisma.$queryRaw`
@@ -402,14 +411,15 @@ jobs:
               const fks = fkRes.map(f => f.conname);
               const expectedNewFks = [
                 "WhatsAppConnection_organizationId_fkey",
-                "PasswordResetToken_userId_fkey"
+                "PasswordResetToken_userId_fkey",
+                "TenantBilling_organizationId_fkey"
               ];
               const missingNewFks = expectedNewFks.filter(f => !fks.includes(f));
               if (missingNewFks.length > 0) {
                 console.error(`::error::Missing incremental foreign keys: ${missingNewFks.join(", ")}`);
                 process.exit(1);
               }
-              console.log("[Post-Flight] ✓ Incremental foreign keys (WhatsAppConnection, PasswordResetToken) confirmed present.");
+              console.log("[Post-Flight] ✓ Incremental foreign keys (WhatsAppConnection, PasswordResetToken, TenantBilling) confirmed present.");
 
               // 4. Audit Incremental Unique Indexes
               const idxRes = await prisma.$queryRaw`
@@ -420,7 +430,10 @@ jobs:
               const indexes = idxRes.map(i => i.indexname);
               const expectedNewIndexes = [
                 "WhatsAppConnection_organizationId_environment_key",
-                "PasswordResetToken_tokenHash_key"
+                "PasswordResetToken_tokenHash_key",
+                "TenantBilling_organizationId_key",
+                "PlatformSetting_key_key",
+                "FeatureGate_key_key"
               ];
               const missingNewIndexes = expectedNewIndexes.filter(i => !indexes.includes(i));
               if (missingNewIndexes.length > 0) {
@@ -434,6 +447,29 @@ jobs:
               const path = require("path");
               const crypto = require("crypto");
 
+              const migrationsDir = path.join(process.cwd(), "prisma", "migrations");
+              const diskMigrations = fs
+                .readdirSync(migrationsDir, { withFileTypes: true })
+                .filter(d => d.isDirectory() && fs.existsSync(path.join(migrationsDir, d.name, "migration.sql")))
+                .map(d => d.name)
+                .sort();
+
+              const expectedMigrations = [
+                "0_init",
+                "20261016000000_add_whatsapp_connection",
+                "20261020000000_add_super_admin_persistence",
+                "20261125000000_add_maintenance_and_manual_billing"
+              ];
+
+              const missingFromDisk = expectedMigrations.filter(name => !diskMigrations.includes(name));
+              const unexpectedOnDisk = diskMigrations.filter(name => !expectedMigrations.includes(name));
+              if (missingFromDisk.length > 0 || unexpectedOnDisk.length > 0) {
+                console.error(
+                  `::error::Local prisma/migrations mismatch. Missing expected: [${missingFromDisk.join(", ")}], Unexpected on disk: [${unexpectedOnDisk.join(", ")}]`
+                );
+                process.exit(1);
+              }
+
               const migrationsRes = await prisma.$queryRaw`
                 SELECT id, checksum, migration_name, finished_at, rolled_back_at, applied_steps_count
                 FROM "_prisma_migrations" 
@@ -441,25 +477,26 @@ jobs:
               `;
               console.log(`[Post-Flight] Found ${migrationsRes.length} migration records in _prisma_migrations:`);
 
-              const expectedMigrations = [
-                "0_init",
-                "20261016000000_add_whatsapp_connection",
-                "20261020000000_add_super_admin_persistence"
-              ];
+              const recordedByName = new Map();
+              for (const record of migrationsRes) {
+                if (recordedByName.has(record.migration_name)) {
+                  console.error(`::error::Duplicate migration record detected in _prisma_migrations for "${record.migration_name}".`);
+                  process.exit(1);
+                }
+                recordedByName.set(record.migration_name, record);
+              }
 
-              if (migrationsRes.length !== expectedMigrations.length) {
-                console.error(`::error::Expected exactly ${expectedMigrations.length} migration records, found ${migrationsRes.length}`);
+              const missingInDb = expectedMigrations.filter(name => !recordedByName.has(name));
+              const unexpectedInDb = [...recordedByName.keys()].filter(name => !expectedMigrations.includes(name));
+              if (missingInDb.length > 0 || unexpectedInDb.length > 0) {
+                console.error(
+                  `::error::Migration set mismatch in _prisma_migrations. Missing: [${missingInDb.join(", ")}], Unexpected: [${unexpectedInDb.join(", ")}]`
+                );
                 process.exit(1);
               }
 
-              for (let i = 0; i < expectedMigrations.length; i++) {
-                const expectedName = expectedMigrations[i];
-                const record = migrationsRes[i];
-
-                if (record.migration_name !== expectedName) {
-                  console.error(`::error::Migration record index ${i} is "${record.migration_name}", expected "${expectedName}".`);
-                  process.exit(1);
-                }
+              for (const expectedName of expectedMigrations) {
+                const record = recordedByName.get(expectedName);
 
                 if (!record.finished_at) {
                   console.error(`::error::Migration "${expectedName}" has not completed (finished_at is NULL).`);
@@ -477,7 +514,7 @@ jobs:
                 }
 
                 // Compute real SHA-256 of local migration.sql file on disk
-                const localSqlPath = path.join(process.cwd(), "prisma", "migrations", expectedName, "migration.sql");
+                const localSqlPath = path.join(migrationsDir, expectedName, "migration.sql");
                 if (!fs.existsSync(localSqlPath)) {
                   console.error(`::error::Local migration file not found at ${localSqlPath}`);
                   process.exit(1);
@@ -492,7 +529,7 @@ jobs:
 
                 console.log(`  ✓ ${record.migration_name} | finished_at: ${record.finished_at} | checksum: ${record.checksum} (MATCHES LOCAL FILE)`);
               }
-              console.log("[Post-Flight] ✓ Authentic migration history, completion, non-rollback, and genuine checksums verified for all 3 migrations.");
+              console.log(`[Post-Flight] ✓ Authentic migration history, completion, non-rollback, and genuine checksums verified for all ${expectedMigrations.length} migrations.`);
 
               console.log("[Post-Flight] ========================================================");
               console.log("[Post-Flight] POST-FLIGHT AUDIT PASSED. Staging database is fully migrated.");

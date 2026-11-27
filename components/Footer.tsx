@@ -21,7 +21,7 @@ export default function Footer() {
               Enterprise WhatsApp Business Platform interface for high-velocity customer conversations, Meta HSM templates, broadcast campaigns, and automated webhooks.
             </p>
             <div className="text-[11px] text-slate-400 flex items-center gap-2 pt-2">
-              <span>Meta Graph API v24.0</span>
+              <span>Meta WhatsApp Cloud API</span>
               <span>·</span>
               <span>Cloud API Coexistence</span>
               <span>·</span>

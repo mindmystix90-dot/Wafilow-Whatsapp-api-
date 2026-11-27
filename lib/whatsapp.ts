@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { decryptToken, encryptToken } from "@/lib/crypto";
 import { checkOrganizationQuota, acquireQuotaReservation } from "@/lib/quota";
+import { getServerWhatsAppEnv } from "@/lib/env";
 
 export type WhatsAppEnvironment = "production" | "sandbox";
 
@@ -538,7 +539,7 @@ export async function testWhatsAppConnectionDiagnostic(
     };
   }
 
-  const apiVersion = "v24.0";
+  const apiVersion = getServerWhatsAppEnv().apiVersion;
   try {
     // 1. Test Phone Number endpoint
     const phoneRes = await fetch(
@@ -766,7 +767,8 @@ export async function sendWhatsAppMessage({
     };
   }
 
-  const endpoint = `https://graph.facebook.com/v24.0/${config.phoneNumberId}/messages`;
+  const apiVersion = getServerWhatsAppEnv().apiVersion;
+  const endpoint = `https://graph.facebook.com/${apiVersion}/${config.phoneNumberId}/messages`;
 
   if (organizationId) {
     quotaReservation = acquireQuotaReservation(organizationId);
@@ -936,7 +938,7 @@ export async function registerWhatsAppPhoneNumber({
     };
   }
 
-  const apiVersion = "v24.0";
+  const apiVersion = getServerWhatsAppEnv().apiVersion;
   const endpoint = `https://graph.facebook.com/${apiVersion}/${conn.phoneNumberId}/register`;
 
   console.log(`[WhatsApp Register] Submitting Cloud API registration for Phone ID ${conn.phoneNumberId} (Org: ${organizationId})`);

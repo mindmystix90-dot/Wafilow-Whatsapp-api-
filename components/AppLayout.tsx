@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
@@ -20,7 +20,7 @@ import {
   ExternalLink,
   Layers,
   User,
-  ShieldAlert,
+  AlertTriangle,
 } from "lucide-react";
 
 interface AppLayoutProps {
@@ -68,6 +68,38 @@ export default function AppLayout({
   const { data: session } = useSession();
   const { isConfigured, isLoading } = useWhatsAppConnection();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [maintenanceNotice, setMaintenanceNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function loadPlatformStatus() {
+      try {
+        const res = await fetch("/api/platform/status");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!active) return;
+        if (data?.maintenanceMode) {
+          setMaintenanceNotice(
+            data.maintenanceMessage ||
+              "Wafilow is currently undergoing scheduled maintenance. Some actions may be temporarily paused."
+          );
+        } else if (data?.outboundPaused) {
+          setMaintenanceNotice(
+            data.maintenanceMessage ||
+              "Outbound messaging is temporarily paused for maintenance."
+          );
+        } else {
+          setMaintenanceNotice(null);
+        }
+      } catch {
+        // Soft fail
+      }
+    }
+    loadPlatformStatus();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-50/70 dark:bg-[#070b12] text-slate-900 dark:text-slate-100 flex flex-col lg:flex-row antialiased">
@@ -176,24 +208,6 @@ export default function AppLayout({
                 );
               })}
             </div>
-
-            {(session?.user?.role === "super_admin" || session?.user?.role === "SUPER_ADMIN") && (
-              <div className="pt-2">
-                <Link
-                  href="/admin/dashboard"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center justify-between p-3 rounded-xl text-xs font-bold bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 transition-all"
-                >
-                  <div className="flex items-center gap-2">
-                    <ShieldAlert className="w-4 h-4 text-amber-400" />
-                    <span>Super Admin Console</span>
-                  </div>
-                  <span className="text-[9px] font-mono uppercase bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded font-black">
-                    ROOT
-                  </span>
-                </Link>
-              </div>
-            )}
 
             {session?.user && (
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -411,24 +425,6 @@ export default function AppLayout({
           </nav>
         </div>
 
-        {/* Super Admin Panel Access (Visible strictly to SUPER_ADMIN) */}
-        {(session?.user?.role === "super_admin" || session?.user?.role === "SUPER_ADMIN") && (
-          <div className="pt-3 pb-1">
-            <Link
-              href="/admin/dashboard"
-              className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 transition-all shadow-sm"
-            >
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-amber-400" />
-                <span>Super Admin</span>
-              </div>
-              <span className="text-[9px] font-mono uppercase bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded font-black">
-                ROOT
-              </span>
-            </Link>
-          </div>
-        )}
-
         {/* User Profile Card at bottom of sidebar */}
         <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800/80">
           <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80 group">
@@ -498,6 +494,16 @@ export default function AppLayout({
             {action && <div className="shrink-0">{action}</div>}
           </div>
         </header>
+
+        {/* Maintenance Notice Banner */}
+        {maintenanceNotice && (
+          <div className="bg-amber-50 dark:bg-amber-950/60 border-b border-amber-200 dark:border-amber-800/80 px-4 sm:px-8 py-2.5">
+            <div className="max-w-7xl mx-auto flex items-start sm:items-center gap-2.5 text-xs text-amber-900 dark:text-amber-200">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+              <span className="font-medium leading-relaxed">{maintenanceNotice}</span>
+            </div>
+          </div>
+        )}
 
         {/* Page Content */}
         <main

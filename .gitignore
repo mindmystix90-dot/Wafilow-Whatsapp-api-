@@ -40,3 +40,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env
+
+# local uploads, sqlite databases, workspace artifacts, and archives
+/public/uploads/
+*.db
+/.aistudio/
+/wafilow-coexistence-deployment.zip

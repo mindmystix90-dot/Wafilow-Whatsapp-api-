@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getServerWhatsAppEnv } from "@/lib/env";
 import { encryptToken } from "@/lib/crypto";
 import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
+import { parseEmbeddedSignupSession } from "@/lib/embedded-signup";
+import { evaluateReleaseGate } from "@/lib/release-gate";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +18,11 @@ class ConflictError extends Error {
 /**
  * POST /api/whatsapp/embedded-signup
  *
- * Secure server-side endpoint for Meta WhatsApp Embedded Signup (v4).
+ * Secure server-side endpoint for Meta WhatsApp Embedded Signup (v5 with v4 fallback).
+ * - Enforces maintenance mode and feature rollout gate with super_admin owner bypass.
  * - Requires authenticated session and isolates credentials strictly to user's organization.
  * - Encrypts access token at rest.
+ * - Derives Business App Coexistence strictly from verified Meta sessionInfo payload.
  * - Idempotently persists WhatsAppBusinessAccount and WhatsAppPhoneNumber records.
  * - Enforces strict tenant isolation (returns 409 Conflict if WABA or phone belongs to another tenant).
  * - NEVER leaks access tokens, secrets, or authorization codes to browser or server logs.
@@ -28,6 +32,26 @@ export async function POST(req: NextRequest) {
     // 1. Validate authenticated active Wafilow session before provisioning
     const sessionUser = await requireActiveUserSession();
     const userOrgId = sessionUser.organizationId;
+
+    // 1b. Enforce Maintenance Mode & Embedded Signup Release Gate (Owner bypass supported)
+    const gateCheck = await evaluateReleaseGate({
+      scope: "embedded_signup",
+      userRole: sessionUser.userRole,
+      organizationId: userOrgId,
+      featureKey: "embedded_signup_v5",
+    });
+
+    if (!gateCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            gateCheck.reason ||
+            "WhatsApp onboarding is temporarily unavailable during maintenance.",
+        },
+        { status: gateCheck.statusCode }
+      );
+    }
 
     const targetOrg = await prisma.organization.findUnique({
       where: { id: userOrgId },
@@ -41,7 +65,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-
     // 2. Parse request payload
     const body = await req.json().catch(() => ({}));
     const {
@@ -52,21 +75,11 @@ export async function POST(req: NextRequest) {
       event: clientEvent,
     } = body;
 
-    // Strict verification: Coexistence is NEVER trusted solely from a client-provided boolean.
-    // It must be verified from authentic Meta Embedded Signup postMessage session info.
-    const sessionPayload =
-      typeof sessionInfo === "object" && sessionInfo !== null
-        ? (sessionInfo as Record<string, unknown>)
-        : null;
-
-    const sessionType = sessionPayload?.type;
-    const sessionEvent =
-      (typeof sessionPayload?.event === "string" ? sessionPayload.event : undefined) ||
-      (typeof clientEvent === "string" ? clientEvent : undefined);
-
-    const isCoexistenceSession =
-      sessionType === "WA_EMBEDDED_SIGNUP" &&
-      sessionEvent === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING";
+    // Strict verification: Coexistence is NEVER trusted solely from a standalone client boolean.
+    // Parse v5 fields (messaging_account_ids, primary_waac_ids, is_on_biz_app) + v4 (waba_id) fallback.
+    const parsedSession = parseEmbeddedSignupSession(sessionInfo, clientEvent);
+    const sessionEvent = parsedSession.event;
+    const isCoexistenceSession = parsedSession.isCoexistenceSession;
 
     if (!code || typeof code !== "string" || !code.trim()) {
       return NextResponse.json(
@@ -100,7 +113,7 @@ export async function POST(req: NextRequest) {
 
     // 4. Exchange authorization code with Meta Graph API
     console.log(
-      `[Embedded Signup] Exchanging authorization code with Meta Graph API (${apiVersion}) for org: ${targetOrg.id}`
+      `[Embedded Signup] Exchanging authorization code with Meta Graph API for org: ${targetOrg.id}`
     );
 
     const tokenUrl = new URL(`https://graph.facebook.com/${apiVersion}/oauth/access_token`);
@@ -143,10 +156,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 5. Resolve WABA ID
-    let resolvedWabaId = wabaId && String(wabaId).trim() ? String(wabaId).trim() : null;
-    let resolvedPhoneId =
+    // 5. Resolve WABA ID & Phone Number ID (prefer verified v5/v4 session payload, fallback to client/debug_token)
+    // CRITICAL: Never accept a primary WAAC ID as a phone_number_id.
+    let resolvedWabaId =
+      parsedSession.wabaId ||
+      (wabaId && String(wabaId).trim() ? String(wabaId).trim() : null);
+    const rawClientPhoneId =
       phoneNumberId && String(phoneNumberId).trim() ? String(phoneNumberId).trim() : null;
+    const clientPhoneMatchesWaac =
+      Boolean(rawClientPhoneId) &&
+      !parsedSession.phoneNumberId &&
+      parsedSession.primaryWaacIds.includes(rawClientPhoneId!);
+    let resolvedPhoneId =
+      parsedSession.phoneNumberId || (clientPhoneMatchesWaac ? null : rawClientPhoneId);
     let businessName: string | null = null;
     let displayPhone: string | null = null;
     let verifiedName: string | null = null;
@@ -262,6 +284,12 @@ export async function POST(req: NextRequest) {
       );
       if (subRes.ok) {
         console.log(`[Embedded Signup] Subscribed WABA ${resolvedWabaId} to webhook events.`);
+      } else {
+        const subErr = await subRes.json().catch(() => ({}));
+        console.warn(
+          `[Embedded Signup] Webhook subscription failed for WABA ${resolvedWabaId} (status ${subRes.status}):`,
+          subErr?.error?.message || "Unknown Meta error"
+        );
       }
     } catch (err) {
       console.warn("[Embedded Signup] Webhook subscription attempt:", err);
@@ -414,6 +442,7 @@ export async function POST(req: NextRequest) {
       onboardingEvent: sessionEvent || "FINISH",
       wabaId: resolvedWabaId,
       phoneNumberId: resolvedPhoneId,
+      primaryWaacId: parsedSession.primaryWaacId || null,
       businessName: businessName || targetOrg.name,
       displayPhoneNumber: displayPhone,
       verifiedName: verifiedName,

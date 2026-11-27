@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getWhatsAppConfig } from "@/lib/whatsapp";
-import { maskSecret } from "@/lib/env";
+import { getServerWhatsAppEnv, maskSecret } from "@/lib/env";
 import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export async function GET() {
       phoneNumberId: config.isConfigured && config.phoneNumberId ? maskSecret(config.phoneNumberId) || config.phoneNumberId : null,
       wabaId: config.isConfigured && config.wabaId ? maskSecret(config.wabaId) || config.wabaId : null,
       accessTokenConfigured: Boolean(config.isConfigured && config.accessToken && config.accessToken.length > 0),
-      apiVersion: "v24.0",
+      apiVersion: getServerWhatsAppEnv().apiVersion,
     });
   } catch (error: unknown) {
     return handleAuthError(error);

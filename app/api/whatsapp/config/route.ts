@@ -6,6 +6,7 @@ import {
   WhatsAppEnvironment,
 } from "@/lib/whatsapp";
 import { prisma } from "@/lib/prisma";
+import { getServerWhatsAppEnv } from "@/lib/env";
 import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +44,8 @@ export async function GET(req: NextRequest) {
     const proto = req.headers.get("x-forwarded-proto") || (hostHeader.includes("localhost") ? "http" : "https");
     const webhookUrl = `${proto}://${hostHeader}/api/webhook`;
 
+    const serverWhatsAppEnv = getServerWhatsAppEnv();
+
     if (!orgId) {
       return NextResponse.json({
         success: true,
@@ -72,8 +75,9 @@ export async function GET(req: NextRequest) {
         wabaId: null,
         verifyToken: null,
         hasAccessToken: false,
-        appId: process.env.META_APP_ID || "3356483501181888",
-        configId: process.env.META_CONFIG_ID || "2934849833375100",
+        appId: serverWhatsAppEnv.appId || "3356483501181888",
+        configId: serverWhatsAppEnv.configId || "2934849833375100",
+        apiVersion: serverWhatsAppEnv.apiVersion,
         webhookUrl,
       });
     }
@@ -129,7 +133,8 @@ export async function GET(req: NextRequest) {
         lastCheckedAt: sandConfig.lastCheckedAt,
       },
       appId: activeConfig.appId,
-      configId: process.env.META_CONFIG_ID || "2934849833375100",
+      configId: serverWhatsAppEnv.configId || "2934849833375100",
+      apiVersion: serverWhatsAppEnv.apiVersion,
       webhookUrl,
     });
   } catch (error: unknown) {

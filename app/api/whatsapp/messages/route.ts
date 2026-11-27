@@ -9,6 +9,7 @@ import {
 } from "@/lib/whatsapp";
 import { prisma } from "@/lib/prisma";
 import { requireActiveUserSession, handleAuthError } from "@/lib/admin-auth";
+import { evaluateReleaseGate } from "@/lib/release-gate";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +134,24 @@ export async function POST(req: NextRequest) {
   try {
     const sessionUser = await requireActiveUserSession();
     const sessionOrgId = sessionUser.organizationId;
+
+    const gateCheck = await evaluateReleaseGate({
+      scope: "outbound",
+      userRole: sessionUser.userRole,
+      organizationId: sessionOrgId,
+    });
+    if (!gateCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            gateCheck.reason ||
+            "Outbound messaging is temporarily paused for maintenance.",
+          errorType: "maintenance",
+        },
+        { status: gateCheck.statusCode }
+      );
+    }
 
     const body = await req.json().catch(() => ({}));
     const {

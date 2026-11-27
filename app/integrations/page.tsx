@@ -130,6 +130,7 @@ export default function IntegrationsPage() {
   const [verifiedName, setVerifiedName] = useState<string | null>(null);
   const [appId, setAppId] = useState("3356483501181888");
   const [configId, setConfigId] = useState("2934849833375100");
+  const [apiVersion, setApiVersion] = useState("v24.0");
 
   // UI States
   const [copiedWebhook, setCopiedWebhook] = useState(false);
@@ -137,8 +138,8 @@ export default function IntegrationsPage() {
 
   // Other third party integration toggles
   const [connectedServices, setConnectedServices] = useState<Record<string, boolean>>({
-    "google-sheets": true,
-    "facebook-leads": true,
+    "google-sheets": false,
+    "facebook-leads": false,
     zapier: false,
     notion: false,
     shopify: false,
@@ -151,7 +152,7 @@ export default function IntegrationsPage() {
     businessName?: string | null;
     wabaId?: string | null;
     phoneNumberId?: string | null;
-    displayPhone?: string | null;
+    displayPhoneNumber?: string | null;
     verifiedName?: string | null;
     isCoexistence?: boolean;
   } | null>(null);
@@ -188,6 +189,7 @@ export default function IntegrationsPage() {
             setHasServerToken(Boolean(data.hasAccessToken));
             if (data.appId) setAppId(data.appId);
             if (data.configId) setConfigId(data.configId);
+            if (data.apiVersion) setApiVersion(data.apiVersion);
             if (data.businessName) setBusinessName(data.businessName);
             if (data.displayPhoneNumber) setDisplayPhone(data.displayPhoneNumber);
             if (data.verifiedName) setVerifiedName(data.verifiedName);
@@ -216,6 +218,9 @@ export default function IntegrationsPage() {
           setPhoneNumberId(data.phoneNumberId || "");
           setWabaId(data.wabaId || "");
           setHasServerToken(Boolean(data.hasAccessToken));
+          if (data.appId) setAppId(data.appId);
+          if (data.configId) setConfigId(data.configId);
+          if (data.apiVersion) setApiVersion(data.apiVersion);
           if (data.businessName) setBusinessName(data.businessName);
           if (data.displayPhoneNumber) setDisplayPhone(data.displayPhoneNumber);
           if (data.verifiedName) setVerifiedName(data.verifiedName);
@@ -235,6 +240,7 @@ export default function IntegrationsPage() {
       const signupResult = await launchWhatsAppSignup({
         appId,
         configId,
+        version: apiVersion,
       });
 
       if (!signupResult?.code) {
@@ -244,7 +250,14 @@ export default function IntegrationsPage() {
       const res = await fetch("/api/whatsapp/embedded-signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signupResult),
+        body: JSON.stringify({
+          code: signupResult.code,
+          wabaId: signupResult.wabaId,
+          phoneNumberId: signupResult.phoneNumberId,
+          sessionInfo: signupResult.sessionInfo,
+          event: signupResult.event,
+          environment: "production",
+        }),
       });
 
       const data = await res.json();
@@ -257,7 +270,7 @@ export default function IntegrationsPage() {
         if (data.wabaId) setWabaId(data.wabaId);
         if (data.phoneNumberId) setPhoneNumberId(data.phoneNumberId);
         if (data.businessName) setBusinessName(data.businessName);
-        if (data.displayPhone) setDisplayPhone(data.displayPhone);
+        if (data.displayPhoneNumber) setDisplayPhone(data.displayPhoneNumber);
         if (data.verifiedName) setVerifiedName(data.verifiedName);
         setHasServerToken(true);
         setAccessToken("•••••••••••••••••••••••••••••• (Stored Server-Side)");
@@ -512,8 +525,16 @@ export default function IntegrationsPage() {
                     <div className="mt-4 p-3.5 rounded-xl text-xs bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60 flex items-start gap-2">
                       <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
                       <div>
-                        <strong>WhatsApp Connected Successfully!</strong>
-                        <p className="mt-0.5">Your phone number and business account have been saved to your workspace.</p>
+                        <strong>
+                          {signupSuccess.isCoexistence
+                            ? "WhatsApp Connected with Business App Coexistence!"
+                            : "WhatsApp Connected Successfully!"}
+                        </strong>
+                        <p className="mt-0.5">
+                          {signupSuccess.isCoexistence
+                            ? "Your WhatsApp Business App and Cloud API are now linked and will stay synchronized."
+                            : "Your phone number and business account have been saved to your workspace."}
+                        </p>
                       </div>
                     </div>
                   )}

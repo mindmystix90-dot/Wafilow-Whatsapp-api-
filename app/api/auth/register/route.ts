@@ -1,13 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { evaluateReleaseGate } from "@/lib/release-gate";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
+    // Enforce platform maintenance mode / registration pause before creating new accounts
+    const gateCheck = await evaluateReleaseGate({ scope: "registration" });
+    if (!gateCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            gateCheck.reason ||
+            "Account registration is temporarily paused during scheduled maintenance.",
+        },
+        { status: gateCheck.statusCode }
+      );
+    }
+
     const body = await req.json().catch(() => ({}));
-    const { name, email, password, organizationName } = body;
+    const { name, email, password, organizationName, role } = body;
+
+    // Security Hardening: Never allow public registration to inject administrative roles
+    if (role && (role === "super_admin" || role === "admin")) {
+      return NextResponse.json(
+        { success: false, error: "Privileged administrator registration is not permitted via public registration." },
+        { status: 403 }
+      );
+    }
 
     if (!email || typeof email !== "string" || !email.includes("@")) {
       return NextResponse.json(
@@ -78,7 +101,7 @@ export async function POST(req: NextRequest) {
           name: (typeof name === "string" && name.trim()) || normalizedEmail.split("@")[0],
           email: normalizedEmail,
           password: hashedPassword,
-          role: "admin",
+          role: "customer",
           organizationId: targetOrgId,
         },
         select: {

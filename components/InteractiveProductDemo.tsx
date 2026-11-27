@@ -254,7 +254,7 @@ export default function InteractiveProductDemo() {
                 <div>
                   <h3 className="font-bold text-sm text-slate-900 dark:text-white">Live Conversation Feed</h3>
                   <p className="text-[11px] text-slate-500 font-mono">
-                    Cloud API v24.0 · Connected to WABA 3356483501181888
+                    WhatsApp Cloud API · Connected Business Account
                   </p>
                 </div>
               </div>
@@ -316,7 +316,7 @@ export default function InteractiveProductDemo() {
                 <div className="flex justify-end">
                   <div className="p-3 rounded-2xl rounded-tr-xs bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs flex items-center gap-2">
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Transmitting to Meta Cloud API v24.0...</span>
+                    <span>Transmitting to Meta Cloud API...</span>
                   </div>
                 </div>
               )}

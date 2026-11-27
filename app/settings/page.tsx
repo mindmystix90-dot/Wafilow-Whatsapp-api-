@@ -92,6 +92,7 @@ function SettingsContent() {
   const [verifyToken, setVerifyToken] = useState("wafilow_webhook_token_secure_9921");
   const [appId, setAppId] = useState("3356483501181888");
   const [configId, setConfigId] = useState("2934849833375100");
+  const [apiVersion, setApiVersion] = useState("v24.0");
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
 
@@ -135,7 +136,7 @@ function SettingsContent() {
   const [sandDiagnosticError, setSandDiagnosticError] = useState<string | null>(null);
 
   // Test Ping State
-  const [testNumber, setTestNumber] = useState("+14155550192");
+  const [testNumber, setTestNumber] = useState("");
   const [testEnv, setTestEnv] = useState<"production" | "sandbox">("production");
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
@@ -151,12 +152,14 @@ function SettingsContent() {
     verifyToken?: string;
     appId?: string;
     configId?: string;
+    apiVersion?: string;
     production?: ConnectionDetails;
     sandbox?: ConnectionDetails;
   }) => {
     if (data.verifyToken) setVerifyToken(data.verifyToken);
     if (data.appId) setAppId(data.appId);
     if (data.configId) setConfigId(data.configId);
+    if (data.apiVersion) setApiVersion(data.apiVersion);
 
     // Populate Production
     const prod: ConnectionDetails = data.production || {
@@ -252,6 +255,7 @@ function SettingsContent() {
       const signupResult = await launchWhatsAppSignup({
         appId,
         configId,
+        version: apiVersion,
       });
 
       if (!signupResult?.code) {
@@ -276,7 +280,11 @@ function SettingsContent() {
         throw new Error(data.error || "Failed to finalize WhatsApp connection with Meta.");
       }
 
-      setSignupSuccess("Production WhatsApp Business Account successfully connected!");
+      setSignupSuccess(
+        data.isCoexistence
+          ? "Production WhatsApp Business Account connected with Business App Coexistence active!"
+          : "Production WhatsApp Business Account successfully connected!"
+      );
       await loadConfigurations();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to complete Meta Embedded Signup";
@@ -768,7 +776,7 @@ function SettingsContent() {
                 </button>
               </div>
 
-              {/* Phone Number Registration Card (Meta Cloud API v24.0) */}
+              {/* Phone Number Registration Card */}
               {showRegisterModal && (
                 <div className="mt-5 p-5 sm:p-6 rounded-2xl border-2 border-violet-400 dark:border-violet-600 bg-slate-50/50 dark:bg-slate-950/50 shadow-xs space-y-4">
                   <div className="flex items-start justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
@@ -778,7 +786,7 @@ function SettingsContent() {
                       </div>
                       <div>
                         <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                          Register Phone Number for Meta Cloud API (v24.0)
+                          Register Phone Number for Meta Cloud API
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300">
                             Required Step
                           </span>

@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "tsx --test test/*.test.ts",
+    "admin:bootstrap": "tsx scripts/bootstrap-super-admin.ts",
     "postinstall": "prisma generate && node scripts/verify-next-bundle.js"
   },
   "dependencies": {

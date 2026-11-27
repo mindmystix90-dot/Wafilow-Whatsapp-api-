@@ -38,7 +38,7 @@ export default function WatchDemoModal({ isOpen, onClose }: WatchDemoModalProps)
                 Wafilow Platform Interactive Walkthrough
               </h3>
               <p className="text-xs text-slate-400">
-                Meta WhatsApp Cloud API v24.0 Enterprise CRM Tour
+                Meta WhatsApp Cloud API Enterprise CRM Tour
               </p>
             </div>
           </div>
@@ -98,7 +98,7 @@ export default function WatchDemoModal({ isOpen, onClose }: WatchDemoModalProps)
                 </div>
                 <div className="p-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white ml-8">
                   <span className="text-[10px] text-violet-200 block font-mono flex items-center justify-between">
-                    <span>Agent Reply via Cloud API v24.0</span>
+                    <span>Agent Reply via WhatsApp Cloud API</span>
                     <span className="flex items-center gap-1 text-cyan-300">
                       <CheckCheck className="w-3.5 h-3.5" /> Read
                     </span>
@@ -116,7 +116,7 @@ export default function WatchDemoModal({ isOpen, onClose }: WatchDemoModalProps)
                 <span>Keep Your Mobile WhatsApp Business App Active</span>
               </div>
               <p className="text-slate-400">
-                Embedded Signup v4 launches with <code className="bg-slate-900 px-1.5 py-0.5 rounded text-indigo-300 font-mono">featureType: &quot;whatsapp_business_app_onboarding&quot;</code> and <code className="bg-slate-900 px-1.5 py-0.5 rounded text-indigo-300 font-mono">sessionInfoVersion: &quot;3&quot;</code>.
+                Embedded Signup connects your existing WhatsApp Business account directly to Wafilow with Business App Coexistence enabled.
               </p>
               <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-800/60 text-emerald-300">
                 ✓ Chat on your smartphone while automating broadcasts and CRM workflows on Wafilow.
