@@ -64,6 +64,14 @@ export function resolveBootstrapOwnerEmails(options?: {
   };
 }
 
+function isValidBcryptHash(hash: string | null | undefined): boolean {
+  if (!hash || typeof hash !== "string") return false;
+  return (
+    hash.length >= 50 &&
+    (hash.startsWith("$2a$") || hash.startsWith("$2b$") || hash.startsWith("$2y$"))
+  );
+}
+
 export async function bootstrapSuperAdmin(options?: {
   email?: string;
   emails?: string;
@@ -72,11 +80,11 @@ export async function bootstrapSuperAdmin(options?: {
   db?: PrismaClient;
 }) {
   const client = options?.db || prisma;
-  const { primaryEmail: email, allowlist } = resolveBootstrapOwnerEmails({
+  const { primaryEmail: email } = resolveBootstrapOwnerEmails({
     email: options?.email,
     emails: options?.emails,
   });
-  const password = options?.password || process.env.SUPER_ADMIN_PASSWORD || "";
+  const password = options?.password ?? process.env.SUPER_ADMIN_PASSWORD ?? "";
   const confirmed = options?.confirmed ?? process.env.CONFIRM_BOOTSTRAP === "true";
 
   console.log("==================================================");
@@ -92,14 +100,14 @@ export async function bootstrapSuperAdmin(options?: {
     );
   }
 
-  // 2. Validate Credentials Input
+  // 2. Validate Email and Optional Password Input
   if (!email || !email.includes("@") || email.length < 5) {
     throw new Error(
       "[Bootstrap Error] A valid SUPER_ADMIN_EMAIL is required (or set SUPER_ADMIN_EMAILS)."
     );
   }
 
-  if (!password || password.length < 8) {
+  if (password && password.length < 8) {
     throw new Error(
       "[Bootstrap Error] SUPER_ADMIN_PASSWORD must be at least 8 characters long."
     );
@@ -108,7 +116,7 @@ export async function bootstrapSuperAdmin(options?: {
   console.log(`[Bootstrap] Target Platform Owner: ${maskEmail(email)}`);
   console.log(`[Bootstrap] Verifying database connectivity and owner status...`);
 
-  // 3. Single-Owner Exclusivity Check: Query existing super_admins
+  // 3. Strict Single-Owner Exclusivity Check: Query ALL existing super_admins
   let existingSuperAdmins: Array<{ id: string; email: string | null; role: string }> = [];
   try {
     existingSuperAdmins = await client.user.findMany({
@@ -122,64 +130,160 @@ export async function bootstrapSuperAdmin(options?: {
     );
   }
 
-  if (existingSuperAdmins.length > 0) {
-    const ownerAccount = existingSuperAdmins[0];
-    const ownerEmail = ownerAccount.email?.toLowerCase().trim() || "";
-    const isSameEmail = ownerEmail === email;
-    const isAllowlistedOwner = allowlist.includes(ownerEmail) && allowlist.includes(email);
+  const otherSuperAdmins = existingSuperAdmins.filter(
+    (acct) => (acct.email?.toLowerCase().trim() || "") !== email
+  );
 
-    if (!isSameEmail && !isAllowlistedOwner) {
-      throw new Error(
-        `[Bootstrap Forbidden] A designated platform owner already exists (${maskEmail(ownerEmail)}). ` +
-          `Wafilow enforces single-owner administrative access. Multiple Super Admin accounts are prohibited.`
-      );
-    }
-
-    console.log(
-      `[Bootstrap] Designated Super Admin account located for ${maskEmail(ownerEmail)}. Updating credentials...`
+  if (otherSuperAdmins.length > 0) {
+    const existingOwnerEmail = otherSuperAdmins[0].email?.toLowerCase().trim() || "";
+    throw new Error(
+      `[Bootstrap Forbidden] A designated platform owner already exists (${maskEmail(existingOwnerEmail)}). ` +
+        `Wafilow enforces single-owner administrative access. Multiple Super Admin accounts are prohibited.`
     );
   }
 
-  // 4. Hash password securely
-  const hashedPassword = await bcrypt.hash(password, 10);
+  if (existingSuperAdmins.length > 0) {
+    console.log(
+      `[Bootstrap] Designated Super Admin account located for ${maskEmail(email)}. Verifying account state...`
+    );
+  }
 
-  // 5. Check if user with this email exists (could be existing user or super_admin)
-  const existingUser = await client.user.findUnique({
-    where: { email },
-    select: { id: true, email: true, role: true, organizationId: true },
-  });
+  // 4. Locate existing user (exact match first, case-insensitive fallback if supported)
+  let existingUser: {
+    id: string;
+    email: string | null;
+    role: string;
+    password?: string | null;
+    status?: string;
+    organizationId?: string | null;
+  } | null = null;
+
+  try {
+    existingUser = await client.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        password: true,
+        status: true,
+        organizationId: true,
+      },
+    });
+  } catch (lookupErr) {
+    if (isMissingTableOrColumnError(lookupErr)) {
+      existingUser = await client.user.findUnique({
+        where: { email },
+        select: { id: true, email: true, role: true, password: true, organizationId: true },
+      });
+    } else {
+      throw lookupErr;
+    }
+  }
+
+  if (!existingUser && typeof client.user.findFirst === "function") {
+    try {
+      existingUser = await client.user.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          password: true,
+          status: true,
+          organizationId: true,
+        },
+      });
+    } catch (fallbackLookupErr) {
+      if (isMissingTableOrColumnError(fallbackLookupErr)) {
+        existingUser = await client.user.findFirst({
+          where: { email: { equals: email, mode: "insensitive" } },
+          select: { id: true, email: true, role: true, password: true, organizationId: true },
+        });
+      } else {
+        throw fallbackLookupErr;
+      }
+    }
+  }
+
+  // 5. Require password if creating a new account OR if existing account lacks a valid bcrypt hash
+  const hasExistingValidPassword = Boolean(existingUser && isValidBcryptHash(existingUser.password));
+  if (!password && !hasExistingValidPassword) {
+    throw new Error(
+      "[Bootstrap Error] SUPER_ADMIN_PASSWORD must be at least 8 characters long."
+    );
+  }
+
+  const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
 
   let superAdminId: string;
+  let promoted = false;
+  let passwordUpdated = false;
+  let sessionsRevoked = false;
 
   if (existingUser) {
-    console.log(
-      `[Bootstrap] Elevating/updating existing account (ID: ${existingUser.id}) to super_admin...`
-    );
-    try {
-      const updated = await client.user.update({
-        where: { id: existingUser.id },
-        data: {
-          role: "super_admin",
-          password: hashedPassword,
-          status: "active",
-          sessionVersion: { increment: 1 },
-        },
-        select: { id: true, email: true, role: true },
-      });
-      superAdminId = updated.id;
-    } catch (err) {
-      if (isMissingTableOrColumnError(err)) {
+    const needsRolePromotion = existingUser.role !== "super_admin";
+    const needsReactivation = Boolean(existingUser.status && existingUser.status !== "active");
+    const needsEmailNormalization =
+      Boolean(existingUser.email) && existingUser.email !== email;
+    const shouldRevokeSessions = needsRolePromotion || needsReactivation || Boolean(hashedPassword);
+
+    promoted = needsRolePromotion;
+    passwordUpdated = Boolean(hashedPassword);
+    sessionsRevoked = shouldRevokeSessions;
+
+    if (!needsRolePromotion && !needsReactivation && !hashedPassword && !needsEmailNormalization) {
+      superAdminId = existingUser.id;
+      console.log(
+        `[Bootstrap] Account (ID: ${existingUser.id}) is already the active super_admin. No changes required.`
+      );
+    } else {
+      console.log(
+        `[Bootstrap] ${needsRolePromotion ? "Promoting" : "Updating"} existing account (ID: ${existingUser.id}) to super_admin...`
+      );
+
+      const fullUpdateData: Record<string, unknown> = {
+        role: "super_admin",
+        status: "active",
+      };
+      if (needsEmailNormalization) {
+        fullUpdateData.email = email;
+      }
+      if (hashedPassword) {
+        fullUpdateData.password = hashedPassword;
+      }
+      if (shouldRevokeSessions) {
+        fullUpdateData.sessionVersion = { increment: 1 };
+      }
+
+      const baselineUpdateData: Record<string, unknown> = {
+        role: "super_admin",
+      };
+      if (needsEmailNormalization) {
+        baselineUpdateData.email = email;
+      }
+      if (hashedPassword) {
+        baselineUpdateData.password = hashedPassword;
+      }
+
+      try {
         const updated = await client.user.update({
           where: { id: existingUser.id },
-          data: {
-            role: "super_admin",
-            password: hashedPassword,
-          },
+          data: fullUpdateData,
           select: { id: true, email: true, role: true },
         });
         superAdminId = updated.id;
-      } else {
-        throw err;
+      } catch (err) {
+        if (isMissingTableOrColumnError(err)) {
+          const updated = await client.user.update({
+            where: { id: existingUser.id },
+            data: baselineUpdateData,
+            select: { id: true, email: true, role: true },
+          });
+          superAdminId = updated.id;
+        } else {
+          throw err;
+        }
       }
     }
   } else {
@@ -204,12 +308,15 @@ export async function bootstrapSuperAdmin(options?: {
       platformOrgId = newOrg.id;
     }
 
+    promoted = true;
+    passwordUpdated = true;
+
     try {
       const created = await client.user.create({
         data: {
           name: "Platform Owner",
           email,
-          password: hashedPassword,
+          password: hashedPassword!,
           role: "super_admin",
           status: "active",
           sessionVersion: 1,
@@ -224,7 +331,7 @@ export async function bootstrapSuperAdmin(options?: {
           data: {
             name: "Platform Owner",
             email,
-            password: hashedPassword,
+            password: hashedPassword!,
             role: "super_admin",
             organizationId: platformOrgId,
           },
@@ -242,8 +349,16 @@ export async function bootstrapSuperAdmin(options?: {
   console.log(` Account ID: ${superAdminId}`);
   console.log(` Role: super_admin`);
   console.log(` Email: ${maskEmail(email)}`);
-  console.log(" Password: [SECURELY HASHED WITH BCRYPT]");
-  console.log(" Session: Validated & Revoked Previous Sessions");
+  console.log(
+    passwordUpdated
+      ? " Password: [SECURELY HASHED WITH BCRYPT]"
+      : " Password: [PRESERVED EXISTING BCRYPT HASH]"
+  );
+  console.log(
+    sessionsRevoked
+      ? " Session: Previous Owner Sessions Revoked (Sign In Again Required)"
+      : " Session: Existing Owner Session Preserved"
+  );
   console.log(" Super Admin Console: /admin/login");
   console.log("==================================================");
 
@@ -251,6 +366,9 @@ export async function bootstrapSuperAdmin(options?: {
     success: true,
     superAdminId,
     email: maskEmail(email),
+    promoted,
+    passwordUpdated,
+    sessionsRevoked,
   };
 }
 

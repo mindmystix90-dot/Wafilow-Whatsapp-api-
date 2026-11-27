@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
@@ -45,9 +45,40 @@ export default function AdminLayout({
   action,
 }: AdminLayoutProps) {
   const pathname = usePathname();
-  const { data: session, status } = useSession();
+  const { data: session, status, update } = useSession();
+  const hasRefreshedRef = useRef(false);
+  const [refreshingRole, setRefreshingRole] = useState(false);
 
-  if (status === "loading") {
+  const sessionUserId = session?.user?.id;
+  const sessionUserRole = session?.user?.role;
+
+  useEffect(() => {
+    if (
+      status === "authenticated" &&
+      sessionUserId &&
+      sessionUserRole !== "super_admin" &&
+      !hasRefreshedRef.current
+    ) {
+      hasRefreshedRef.current = true;
+      let active = true;
+      Promise.resolve()
+        .then(() => {
+          if (active) setRefreshingRole(true);
+          return update();
+        })
+        .catch(() => {
+          // Ignore refresh error; fail-closed access check below will hold
+        })
+        .finally(() => {
+          if (active) setRefreshingRole(false);
+        });
+      return () => {
+        active = false;
+      };
+    }
+  }, [status, sessionUserId, sessionUserRole, update]);
+
+  if (status === "loading" || refreshingRole) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
         <div className="flex items-center gap-3">
@@ -60,8 +91,43 @@ export default function AdminLayout({
     );
   }
 
-  // Unauthorized or non-admin view
-  if (!session || session.user?.role !== "super_admin") {
+  // Unauthenticated or revoked session
+  if (!session?.user?.id) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-900 border border-amber-900/50 rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+          <div className="w-12 h-12 rounded-xl bg-amber-950/80 border border-amber-800 text-amber-400 flex items-center justify-center mx-auto">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-white">Owner Sign-In Required</h1>
+            <p className="text-xs text-slate-400 mt-1">
+              Your administrative session is missing or has expired. Please sign in with your Platform Owner account.
+            </p>
+          </div>
+          <div className="pt-2 flex flex-col sm:flex-row gap-2 justify-center">
+            <Link
+              href="/admin/login"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-slate-950 transition-colors"
+            >
+              <ShieldAlert className="w-4 h-4" />
+              Sign In to Admin Console
+            </Link>
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Return to App
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Authenticated non-admin view
+  if (session.user.role !== "super_admin") {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-slate-900 border border-rose-900/50 rounded-2xl p-6 text-center space-y-4 shadow-2xl">
@@ -88,7 +154,7 @@ export default function AdminLayout({
               className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition-colors"
             >
               <LogOut className="w-4 h-4" />
-              Sign Out
+              Sign Out & Switch Account
             </button>
           </div>
         </div>

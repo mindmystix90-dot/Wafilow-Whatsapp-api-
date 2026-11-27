@@ -26,6 +26,11 @@ export default async function middleware(req: NextRequest, event: NextFetchEvent
     return NextResponse.redirect(url, { status: 308 });
   }
 
+  const pathname = req.nextUrl.pathname;
+  if (pathname === "/admin/login") {
+    return NextResponse.next();
+  }
+
   const nextAuthSecret = process.env.NEXTAUTH_SECRET;
   if (!nextAuthSecret || nextAuthSecret.trim() === "") {
     console.error(
@@ -37,12 +42,14 @@ export default async function middleware(req: NextRequest, event: NextFetchEvent
     );
   }
 
+  const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
+
   const authMiddleware = withAuth({
     callbacks: {
-      authorized: ({ token }) => !!token,
+      authorized: ({ token }) => Boolean(token && token.id && !token.revoked),
     },
     pages: {
-      signIn: "/login",
+      signIn: isAdminRoute ? "/admin/login" : "/login",
     },
     secret: nextAuthSecret,
   });
@@ -55,6 +62,8 @@ export default async function middleware(req: NextRequest, event: NextFetchEvent
 
 export const config = {
   matcher: [
+    "/admin",
+    "/admin/:path*",
     "/dashboard/:path*",
     "/inbox/:path*",
     "/contacts/:path*",

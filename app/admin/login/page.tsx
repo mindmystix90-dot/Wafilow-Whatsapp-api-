@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ShieldAlert, Lock, Mail, ArrowLeft, AlertCircle } from "lucide-react";
 
 export default function AdminLoginPage() {
   const router = useRouter();
+  const { update: updateSession } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -21,25 +22,33 @@ export default function AdminLoginPage() {
     try {
       const res = await signIn("credentials", {
         redirect: false,
-        email: email.trim(),
+        email: email.trim().toLowerCase(),
         password,
+        isAdminPortal: "true",
       });
 
-      if (!res || res.error) {
-        setError(res?.error || "Authentication failed. Check your administrative credentials.");
+      if (!res || res.error || !res.ok) {
+        if (res?.error && res.error !== "CredentialsSignin") {
+          setError(res.error);
+        } else {
+          setError("Invalid credentials or insufficient Platform Owner clearance.");
+        }
         return;
       }
 
-      // Check session role
-      const sessionRes = await fetch("/api/auth/session");
+      // Verify authoritative server session role before entering admin console
+      const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });
       const session = await sessionRes.json();
 
       if (session?.user?.role !== "super_admin") {
+        await signOut({ redirect: false });
         setError("Access restricted. The account credentials provided do not have Super Admin clearance.");
         return;
       }
 
-      router.push("/admin/dashboard");
+      // Synchronize client SessionProvider state before routing to /admin/dashboard
+      await updateSession();
+      router.replace("/admin/dashboard");
       router.refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Sign-in error occurred.");

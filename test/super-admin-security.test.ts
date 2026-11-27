@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import bcrypt from "bcryptjs";
 import { bootstrapSuperAdmin } from "../scripts/bootstrap-super-admin";
 import { createAuthGuards } from "../lib/admin-auth";
+import { createAuthCallbacks, createAuthorize } from "../lib/auth";
 import {
   listAdminWhatsAppConnections,
   getCustomerDetails,
@@ -121,6 +122,300 @@ test("Super Admin Bootstrap Suite", async (t) => {
     assert.ok(pass.startsWith("$2a$") || pass.startsWith("$2b$"), "Password must be bcrypt hashed");
     const matches = await bcrypt.compare("SuperSecretPassword2026!", pass);
     assert.equal(matches, true, "Bcrypt hash must match input password");
+  });
+
+  await t.test("enforces strict single-owner exclusivity even when SUPER_ADMIN_EMAILS lists multiple emails", async () => {
+    const mockDb = {
+      user: {
+        findMany: async () => [{ id: "owner-1", email: "owner1@wafilow.com", role: "super_admin" }],
+      },
+    };
+
+    await assert.rejects(
+      async () => {
+        await bootstrapSuperAdmin({
+          email: "owner2@wafilow.com",
+          emails: "owner1@wafilow.com,owner2@wafilow.com",
+          password: "AnotherStrongPassword123!",
+          confirmed: true,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          db: mockDb as any,
+        });
+      },
+      {
+        message: /A designated platform owner already exists/,
+      }
+    );
+  });
+
+  await t.test("idempotently promotes an existing owner account preserving bcrypt password without affecting customers", async () => {
+    const ownerPasswordHash = await bcrypt.hash("OwnerExistingPass123!", 10);
+    const customerPasswordHash = await bcrypt.hash("CustomerPass123!", 10);
+
+    const users = [
+      {
+        id: "owner-acct",
+        name: "Platform Owner",
+        email: "owner@example.com",
+        password: ownerPasswordHash,
+        role: "customer",
+        status: "active",
+        sessionVersion: 1,
+        organizationId: "org-owner",
+        organization: { id: "org-owner", status: "active" },
+      },
+      {
+        id: "customer-acct",
+        name: "Ordinary Customer",
+        email: "customer@example.com",
+        password: customerPasswordHash,
+        role: "customer",
+        status: "active",
+        sessionVersion: 1,
+        organizationId: "org-customer",
+        organization: { id: "org-customer", status: "active" },
+      },
+    ];
+
+    let updateCalls = 0;
+
+    const mockDb = {
+      user: {
+        findMany: async ({ where }: { where?: { role?: string } }) =>
+          users.filter((u) => !where?.role || u.role === where.role),
+        findUnique: async ({ where }: { where: { id?: string; email?: string } }) =>
+          users.find((u) => (where.id ? u.id === where.id : u.email === where.email)) || null,
+        findFirst: async ({ where }: { where: { email?: { equals?: string; mode?: string } } }) => {
+          const target = where.email?.equals?.toLowerCase();
+          return users.find((u) => u.email.toLowerCase() === target) || null;
+        },
+        update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          updateCalls++;
+          const target = users.find((u) => u.id === where.id);
+          if (!target) throw new Error("User not found");
+          if (typeof data.role === "string") target.role = data.role;
+          if (typeof data.status === "string") target.status = data.status;
+          if (typeof data.password === "string") target.password = data.password;
+          if (
+            data.sessionVersion &&
+            typeof data.sessionVersion === "object" &&
+            "increment" in data.sessionVersion
+          ) {
+            target.sessionVersion += (data.sessionVersion as { increment: number }).increment;
+          }
+          return { id: target.id, email: target.email, role: target.role };
+        },
+      },
+    };
+
+    const authorize = createAuthorize(mockDb);
+    const callbacks = createAuthCallbacks(mockDb);
+
+    // 1. Before promotion: owner is rejected at /admin/login and requireSuperAdmin
+    const prePromoteAdminLogin = await authorize({
+      email: "owner@example.com",
+      password: "OwnerExistingPass123!",
+      isAdminPortal: "true",
+    });
+    assert.equal(prePromoteAdminLogin, null, "Non-super_admin must be rejected by admin portal authorize()");
+
+    const prePromoteGuards = createAuthGuards({
+      getSession: async () => ({
+        user: { id: "owner-acct", email: "owner@example.com", role: "customer", sessionVersion: 1 },
+        expires: "2099-01-01",
+      }),
+      db: mockDb,
+    });
+    await assert.rejects(
+      async () => prePromoteGuards.requireSuperAdmin(),
+      { statusCode: 403, message: /Super Admin privilege required/ }
+    );
+
+    // 2. Promote configured owner without overwriting existing bcrypt password
+    const promoteRes = await bootstrapSuperAdmin({
+      email: "owner@example.com",
+      password: "",
+      confirmed: true,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      db: mockDb as any,
+    });
+    assert.equal(promoteRes.success, true);
+    assert.equal(promoteRes.promoted, true);
+    assert.equal(promoteRes.passwordUpdated, false);
+    assert.equal(promoteRes.sessionsRevoked, true);
+    assert.equal(users[0].role, "super_admin");
+    assert.equal(users[0].password, ownerPasswordHash, "Existing bcrypt hash must be preserved");
+    assert.equal(users[0].sessionVersion, 2, "Promotion must bump sessionVersion so owner re-authenticates cleanly");
+
+    // Customer account and session remain completely untouched
+    assert.equal(users[1].role, "customer");
+    assert.equal(users[1].password, customerPasswordHash);
+    assert.equal(users[1].sessionVersion, 1);
+
+    // 3. Stale owner JWT (sessionVersion 1) is revoked so user must sign in again
+    const staleToken = await callbacks.jwt({
+      token: { id: "owner-acct", role: "customer", sessionVersion: 1 },
+    });
+    assert.equal(staleToken.revoked, true);
+    assert.equal(staleToken.id, undefined);
+    const staleSession = await callbacks.session({
+      session: { expires: "2099-01-01", user: { id: "owner-acct" } },
+      token: staleToken,
+    });
+    assert.equal(staleSession.user, undefined);
+
+    // 4. Owner signs in again via /admin/login (isAdminPortal=true) and gains Super Admin access
+    const freshOwner = await authorize({
+      email: "OWNER@example.com",
+      password: "OwnerExistingPass123!",
+      isAdminPortal: "true",
+    });
+    assert.ok(freshOwner, "Promoted owner must authenticate via admin portal");
+    assert.equal(freshOwner.role, "super_admin");
+    assert.equal(freshOwner.sessionVersion, 2);
+
+    const freshToken = await callbacks.jwt({
+      token: {},
+      user: freshOwner,
+    });
+    assert.equal(freshToken.role, "super_admin");
+    assert.equal(freshToken.sessionVersion, 2);
+    assert.equal(freshToken.revoked, undefined);
+
+    const freshSession = await callbacks.session({
+      session: { expires: "2099-01-01", user: { id: freshOwner.id } },
+      token: freshToken,
+    });
+    assert.equal(freshSession.user.role, "super_admin");
+
+    const postPromoteGuards = createAuthGuards({
+      getSession: async () => freshSession,
+      db: mockDb,
+    });
+    const verifiedOwner = await postPromoteGuards.requireSuperAdmin();
+    assert.equal(verifiedOwner.adminId, "owner-acct");
+    assert.equal(verifiedOwner.adminEmail, "owner@example.com");
+
+    // 5. Ordinary customer remains strictly denied from admin portal & requireSuperAdmin
+    const customerAdminLogin = await authorize({
+      email: "customer@example.com",
+      password: "CustomerPass123!",
+      isAdminPortal: "true",
+    });
+    assert.equal(customerAdminLogin, null, "Ordinary customer must be denied on /admin/login");
+
+    const customerGuards = createAuthGuards({
+      getSession: async () => ({
+        user: { id: "customer-acct", email: "customer@example.com", role: "customer", sessionVersion: 1 },
+        expires: "2099-01-01",
+      }),
+      db: mockDb,
+    });
+    await assert.rejects(
+      async () => customerGuards.requireSuperAdmin(),
+      { statusCode: 403, message: /Super Admin privilege required/ }
+    );
+
+    // 6. Re-running bootstrap idempotently on active super_admin without password change performs no unnecessary session revocation
+    const prevUpdateCalls = updateCalls;
+    const secondRun = await bootstrapSuperAdmin({
+      email: "owner@example.com",
+      password: "",
+      confirmed: true,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      db: mockDb as any,
+    });
+    assert.equal(secondRun.success, true);
+    assert.equal(secondRun.promoted, false);
+    assert.equal(secondRun.sessionsRevoked, false);
+    assert.equal(updateCalls, prevUpdateCalls, "Idempotent re-run must not write unnecessary updates");
+    assert.equal(users[0].sessionVersion, 2, "Idempotent re-run must not revoke active owner session");
+  });
+
+  await t.test("rejects passwordless promotion when existing account has no valid bcrypt password hash", async () => {
+    const mockDb = {
+      user: {
+        findMany: async () => [],
+        findUnique: async () => ({
+          id: "nopass-1",
+          email: "nopass@example.com",
+          role: "customer",
+          password: null,
+          status: "active",
+        }),
+      },
+    };
+
+    await assert.rejects(
+      async () => {
+        await bootstrapSuperAdmin({
+          email: "nopass@example.com",
+          password: "",
+          confirmed: true,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          db: mockDb as any,
+        });
+      },
+      {
+        message: /SUPER_ADMIN_PASSWORD must be at least 8 characters long/,
+      }
+    );
+  });
+
+  await t.test("allows super_admin login even if linked organization is suspended, while blocking ordinary customers", async () => {
+    const passHash = await bcrypt.hash("ValidPass123!", 10);
+    const mockDb = {
+      user: {
+        findUnique: async ({ where }: { where: { email: string } }) => {
+          if (where.email === "owner@example.com") {
+            return {
+              id: "owner-susp-org",
+              name: "Owner",
+              email: "owner@example.com",
+              password: passHash,
+              role: "super_admin",
+              status: "active",
+              sessionVersion: 1,
+              organizationId: "org-susp",
+              organization: { id: "org-susp", status: "suspended" },
+            };
+          }
+          if (where.email === "customer@example.com") {
+            return {
+              id: "cust-susp-org",
+              name: "Customer",
+              email: "customer@example.com",
+              password: passHash,
+              role: "customer",
+              status: "active",
+              sessionVersion: 1,
+              organizationId: "org-susp",
+              organization: { id: "org-susp", status: "suspended" },
+            };
+          }
+          return null;
+        },
+      },
+    };
+
+    const authorize = createAuthorize(mockDb);
+
+    const ownerLogin = await authorize({
+      email: "owner@example.com",
+      password: "ValidPass123!",
+    });
+    assert.ok(ownerLogin);
+    assert.equal(ownerLogin.role, "super_admin");
+
+    await assert.rejects(
+      async () => {
+        await authorize({
+          email: "customer@example.com",
+          password: "ValidPass123!",
+        });
+      },
+      { message: /organization workspace has been suspended/i }
+    );
   });
 });
 

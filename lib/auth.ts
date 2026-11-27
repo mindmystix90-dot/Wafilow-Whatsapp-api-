@@ -197,27 +197,48 @@ export function createAuthorize(db: any = prisma) {
 
     const normalizedEmail = credentials.email.toLowerCase().trim();
 
+    const primarySelect = {
+      id: true,
+      name: true,
+      email: true,
+      image: true,
+      password: true,
+      role: true,
+      status: true,
+      sessionVersion: true,
+      organizationId: true,
+      organization: {
+        select: { id: true, status: true },
+      },
+    };
+
+    const baselineSelect = {
+      id: true,
+      name: true,
+      email: true,
+      image: true,
+      password: true,
+      role: true,
+      organizationId: true,
+      organization: {
+        select: { id: true },
+      },
+    };
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let user: any;
     try {
       // Primary query requesting full production fields (including status/sessionVersion)
       user = await db.user.findUnique({
         where: { email: normalizedEmail },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          image: true,
-          password: true,
-          role: true,
-          status: true,
-          sessionVersion: true,
-          organizationId: true,
-          organization: {
-            select: { id: true, status: true },
-          },
-        },
+        select: primarySelect,
       });
+      if (!user && typeof db.user.findFirst === "function") {
+        user = await db.user.findFirst({
+          where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+          select: primarySelect,
+        });
+      }
     } catch (error: unknown) {
       // Precise fallback: only trigger if column is missing (P2022 / 42703).
       // P2021 (missing table) or other database errors will fail closed.
@@ -228,19 +249,14 @@ export function createAuthorize(db: any = prisma) {
           // Organization: id
           user = await db.user.findUnique({
             where: { email: normalizedEmail },
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              image: true,
-              password: true,
-              role: true,
-              organizationId: true,
-              organization: {
-                select: { id: true },
-              },
-            },
+            select: baselineSelect,
           });
+          if (!user && typeof db.user.findFirst === "function") {
+            user = await db.user.findFirst({
+              where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+              select: baselineSelect,
+            });
+          }
         } catch (fallbackErr) {
           console.error("[NextAuth authorize] Fallback database lookup failed:", fallbackErr);
           throw new Error("Authentication service is temporarily unavailable. Please try again later.");
@@ -272,6 +288,7 @@ export function createAuthorize(db: any = prisma) {
     // 4. Organization Suspension Check (For Customer Logins when status column exists in DB)
     if (
       !isAdminLogin &&
+      user.role !== "super_admin" &&
       user.organization?.status &&
       user.organization.status !== "active"
     ) {
